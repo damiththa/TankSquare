@@ -6,30 +6,32 @@
 
 ## 1. Single-Project `DEV` vs. `PROD` Isolation in GCP
 
-Inside your single GCP Project (`YOUR_GCP_PROJECT_ID`), `DEV` and `PROD` are completely isolated:
+Inside your single GCP Project (`$PROJECT_ID`), `DEV` and `PROD` are completely isolated:
 
 | Layer | `DEV` Environment (`dev` Git branch) | `PROD` Environment (`main` Git branch) |
 | :--- | :--- | :--- |
 | **Cloud Run Service** | `tanksquare-api-dev` | `tanksquare-api-prod` |
 | **Firestore Collections** | `dev_vendors`, `dev_sessions`, `dev_site_passes`, `dev_webhook_logs` | `prod_vendors`, `prod_sessions`, `prod_site_passes`, `prod_webhook_logs` |
-| **Cloud Storage Paths** | `gs://YOUR_GCP_PROJECT_ID-media/dev/...` | `gs://YOUR_GCP_PROJECT_ID-media/prod/...` |
+| **Cloud Storage Paths** | `gs://${PROJECT_ID}-media/dev/...` | `gs://${PROJECT_ID}-media/prod/...` |
 | **Demo Data Seeding** | `SEED_DEMO_DATA=true` (3 demo fuel dealers) | `SEED_DEMO_DATA=false` (strictly live B2B tenants) |
 
 ---
 
 ## 2. Step-by-Step Instructions in Google Cloud Shell (Browser)
 
-Because **Google Cloud Shell** runs directly inside your browser at [console.cloud.google.com](https://console.cloud.google.com/) (click the **`>_` Activate Cloud Shell** icon in the top-right corner), `gcloud`, `git`, and your Google account permissions are **already pre-authenticated**.
+> **Important Note on Project Number vs. Project ID:**
+> GCP gives every project both a numeric **Project Number** (e.g., `339694762975`) and a string **Project ID** (e.g., `tanksquare-...`). Commands like `gcloud firestore` and `gcloud artifacts` require the string **Project ID**. Step 1 below automatically resolves your string `PROJECT_ID` from either value!
 
-### Step 1: Open Google Cloud Shell & Select Your Project
-In the Cloud Shell terminal at the bottom of your browser, set your project ID:
+### Step 1: Resolve Your String `PROJECT_ID` & Set It in Cloud Shell
+Copy and paste this into Cloud Shell (works whether you pass your Project Number or Project ID):
 ```bash
-export PROJECT_ID="YOUR_GCP_PROJECT_ID"
-gcloud config set project $PROJECT_ID
+export PROJECT_NUMBER="339694762975"
+export PROJECT_ID=$(gcloud projects describe $PROJECT_NUMBER --format="value(projectId)")
+echo "Resolved String Project ID: $PROJECT_ID"
+gcloud config set project "$PROJECT_ID"
 ```
 
 ### Step 2: Enable Required GCP & Google Maps APIs
-Copy and paste this block into Cloud Shell:
 ```bash
 gcloud services enable \
   run.googleapis.com \
@@ -39,68 +41,56 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
   maps-backend.googleapis.com \
-  geocoding-backend.googleapis.com
+  geocoding-backend.googleapis.com \
+  --project="$PROJECT_ID"
 ```
 
-### Step 3: Add Your Secrets to Google Cloud Secret Manager (Hidden Input)
-Copy and paste this block into Cloud Shell. It uses `read -s` (silent/hidden input) so when you paste your Google Maps API key, **nothing is echoed to the screen or saved in your Cloud Shell history**:
-
+### Step 3: Add Your Secrets to Google Cloud Secret Manager (Silent Input)
+*(If you already ran this step earlier, your 4 secrets are already saved in Secret Manager! This version safely creates or updates them using `--project="$PROJECT_ID"`):*
 ```bash
-# 1. Google Maps Platform API Key (Silent prompt — paste key and press Enter)
+upsert_secret() {
+  local name="$1"
+  local val="$2"
+  gcloud secrets describe "$name" --project="$PROJECT_ID" >/dev/null 2>&1 || \
+    gcloud secrets create "$name" --replication-policy="automatic" --project="$PROJECT_ID"
+  printf "%s" "$val" | gcloud secrets versions add "$name" --data-file=- --project="$PROJECT_ID"
+}
+
 read -r -s -p "Paste your Google Maps API Key (or press Enter for PLACEHOLDER): " MAPS_KEY && echo ""
-printf "%s" "${MAPS_KEY:-PLACEHOLDER_MAPS_KEY}" | \
-  gcloud secrets create tanksquare-google-maps-api-key --replication-policy="automatic" --data-file=-
+upsert_secret "tanksquare-google-maps-api-key" "${MAPS_KEY:-PLACEHOLDER_MAPS_KEY}"
 
-# 2. what3words v3 API Key (Silent prompt — paste key or press Enter for PLACEHOLDER)
 read -r -s -p "Paste your what3words API Key (or press Enter for PLACEHOLDER): " W3W_KEY && echo ""
-printf "%s" "${W3W_KEY:-PLACEHOLDER_W3W_KEY}" | \
-  gcloud secrets create tanksquare-w3w-api-key --replication-policy="automatic" --data-file=-
+upsert_secret "tanksquare-w3w-api-key" "${W3W_KEY:-PLACEHOLDER_W3W_KEY}"
 
-# 3. Auto-Generated 32-Byte Resident Zero-Login Session Signing Secret
-python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' | \
-  gcloud secrets create tanksquare-session-signing-secret --replication-policy="automatic" --data-file=-
-
-# 4. Auto-Generated 32-Byte B2B Vendor API Shared Secret
-python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' | \
-  gcloud secrets create tanksquare-vendor-api-secret --replication-policy="automatic" --data-file=-
-
+upsert_secret "tanksquare-session-signing-secret" "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")')"
+upsert_secret "tanksquare-vendor-api-secret" "$(python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")')"
 unset MAPS_KEY W3W_KEY
 ```
 
-*(Or, once you clone the repo in Cloud Shell, you can simply run `bash scripts/setup_gcp_cloudshell.sh` which automates Steps 1–4 interactively!)*
-
-### Step 4: Grant Cloud Run Permission to Read Secrets & Create Firestore + Storage
+### Step 4: Grant Cloud Run Access & Create Firestore, Storage & Artifact Registry
 ```bash
-# Allow Cloud Run to read the 4 secrets from Secret Manager
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-gcloud projects add-iam-policy-binding $PROJECT_ID \
+# 1. Allow Cloud Run service account to read the 4 secrets from Secret Manager
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 
-# Create Native Firestore Database (shared by dev_* and prod_* collections)
-gcloud firestore databases create --location=nam5 --type=firestore-native
+# 2. Create Native Firestore Database (requires string $PROJECT_ID)
+gcloud firestore databases create \
+  --location=nam5 \
+  --type=firestore-native \
+  --project="$PROJECT_ID"
 
-# Create GCS Bucket for Tank/Driveway Photos (shared by dev/ and prod/ folders)
-gcloud storage buckets create gs://${PROJECT_ID}-media \
-  --location=us-central1 --uniform-bucket-level-access
+# 3. Ensure GCS Bucket exists (ignores if already created)
+gcloud storage buckets create "gs://${PROJECT_ID}-media" \
+  --location=us-central1 \
+  --uniform-bucket-level-access \
+  --project="$PROJECT_ID" 2>/dev/null || true
 
-# Create Artifact Registry Docker Repo for Cloud Run builds
+# 4. Create Artifact Registry Docker Repo (requires string $PROJECT_ID)
 gcloud artifacts repositories create tanksquare \
-  --repository-format=docker --location=us-central1
-```
-
-### Step 5: Clone Your Repo in Cloud Shell & Deploy `DEV` or `PROD`
-```bash
-git clone https://github.com/damiththa/TankSquare.git
-cd TankSquare
-
-# Deploy DEV (`dev` branch -> Cloud Run `tanksquare-api-dev`)
-git checkout dev
-gcloud builds submit --config deploy/cloudbuild.dev.yaml
-
-# Deploy PROD (`main` branch -> Cloud Run `tanksquare-api-prod`)
-git checkout main
-gcloud builds submit --config deploy/cloudbuild.prod.yaml
+  --repository-format=docker \
+  --location=us-central1 \
+  --project="$PROJECT_ID"
 ```
 
 ---
