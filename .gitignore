@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+
+# Environment & Secrets (Never commit real GCP keys or production .env)
+.env
+*.secret.json
+gcp-service-account*.json
+
+# OS
+.DS_Store
+Thumbs.db

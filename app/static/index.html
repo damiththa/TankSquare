@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TankSquare — Zero-Login Resident Property Grid & Hose-Reach Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .grid-board {
+      display: grid;
+      grid-template-columns: repeat(25, minmax(0, 1fr));
+      grid-template-rows: repeat(16, minmax(0, 1fr));
+      aspect-ratio: 25 / 16;
+      background:
+        radial-gradient(circle at 22% 30%, rgba(22, 101, 52, 0.55) 0%, transparent 35%),
+        radial-gradient(circle at 82% 28%, rgba(21, 128, 61, 0.5) 0%, transparent 40%),
+        linear-gradient(180deg, #14532d 0%, #166534 78%, #334155 78%, #1e293b 100%);
+      position: relative;
+      user-select: none;
+    }
+    .grid-cell {
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      position: relative;
+      cursor: pointer;
+      transition: transform 0.08s ease, background-color 0.12s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .grid-cell:hover {
+      background-color: rgba(255, 255, 255, 0.28);
+      z-index: 20;
+      outline: 2px solid #facc15;
+    }
+    .cell-house { background-color: rgba(120, 53, 15, 0.72); border-color: rgba(251, 191, 36, 0.25); }
+    .cell-garage { background-color: rgba(146, 64, 14, 0.68); }
+    .cell-driveway { background-color: rgba(100, 116, 139, 0.78); }
+    .cell-road { background-color: rgba(30, 41, 59, 0.92); border-top: 2px dashed rgba(250, 204, 21, 0.55); }
+    .marker-tank { background-color: #f97316 !important; color: #fff; box-shadow: 0 0 0 3px rgba(249,115,22,0.55); z-index: 15; }
+    .marker-p1 { background-color: #2563eb !important; color: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,0.55); z-index: 15; }
+    .marker-p2 { background-color: #0891b2 !important; color: #fff; box-shadow: 0 0 0 2px rgba(8,145,178,0.55); z-index: 14; }
+    .marker-wp { background-color: #a855f7 !important; color: #fff; z-index: 14; }
+    .marker-hz { background-color: #dc2626 !important; color: #fff; z-index: 14; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
+
+  <!-- Top Multi-Vendor & GCP Environment Bar -->
+  <div class="bg-slate-900 border-b border-slate-800 px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-2.5 flex-wrap">
+      <span id="envBadge" class="px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+        GCP ENV: DEV
+      </span>
+      <span class="px-2.5 py-0.5 rounded-full font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30">
+        Zero Resident Login Required
+      </span>
+      <span class="px-2.5 py-0.5 rounded-full font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+        100% Free for Residents (Vendor-Paid B2B)
+      </span>
+    </div>
+
+    <div class="flex items-center gap-3 flex-wrap">
+      <label class="text-slate-400 font-medium">Simulate Vendor `<script>` Portal:</label>
+      <select id="vendorSelect" class="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-100 font-semibold">
+        <option value="ts_tok_gmp_vt_demo1">Green Mountain Propane (VT) — 150ft Max Hose (Cargas ERP)</option>
+        <option value="ts_tok_aho_ny_demo2">Adirondack Heating Oil (NY) — 125ft Max Hose (ADD Systems)</option>
+        <option value="ts_tok_hce_ia_demo3">Heartland Co-op Energy (IA) — 175ft Max Hose (RCC MOGO)</option>
+      </select>
+      <a href="/driver" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1 rounded-lg transition">
+        Open Tanker Driver Mobile View &rarr;
+      </a>
+      <a href="/docs" target="_blank" class="text-slate-400 hover:text-white underline">
+        FastAPI Swagger Docs
+      </a>
+    </div>
+  </div>
+
+  <!-- Co-Branded Vendor Header -->
+  <header id="vendorHeader" class="bg-green-800 transition-colors duration-300 px-6 py-4 shadow-lg border-b border-white/10">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center font-black text-lg tracking-tighter border border-white/25">
+          TS
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 id="vendorName" class="text-xl font-extrabold tracking-tight text-white">Green Mountain Propane (VT)</h1>
+            <span class="text-xs bg-black/30 px-2 py-0.5 rounded text-white/90 font-medium">Powered by TankSquare</span>
+          </div>
+          <p id="vendorTagline" class="text-xs text-white/80">
+            No account signup required • Click your 3m × 3m property squares so our driver spots your tank & safe driveway bay on the first try
+          </p>
+        </div>
+      </div>
+      <div class="text-right text-xs bg-black/25 px-3.5 py-2 rounded-xl border border-white/15">
+        <div class="text-white/75">Customer Session (Pre-Authenticated via Vendor Portal)</div>
+        <div id="customerSummary" class="font-bold text-white text-sm">Arthur & Martha Pendelton • Acct #GMP-88412</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="max-w-7xl w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 md:p-6">
+
+    <!-- Left Column: Step 1 Address + Step 2 Interactive 3m x 3m Satellite Parcel Grid -->
+    <section class="lg:col-span-8 flex flex-col gap-4">
+
+      <!-- Step 1: Street Address & Tank Type Bar -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-emerald-400">
+            Step 1: Confirm Delivery Address & Tank Style
+          </h2>
+          <button id="gpsBtn" type="button" class="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 px-3 py-1 rounded-lg font-semibold text-sky-300">
+            📍 Standing by Tank? Use Phone Browser GPS
+          </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-6">
+            <label class="block text-xs text-slate-400 mb-1">Service Street Address</label>
+            <input id="addressInput" type="text" value="742 Evergreen Terrace, Montpelier, VT 05602"
+              class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
+          </div>
+          <div class="md:col-span-4">
+            <label class="block text-xs text-slate-400 mb-1">Tank / Fill Style (Trees or Underground?)</label>
+            <select id="tankTypeSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white">
+              <option value="aboveground">Aboveground Propane Tank</option>
+              <option value="underground_dome">Underground Propane Dome (Buried)</option>
+              <option value="wall_fill_pipe">Basement Heating-Oil Fill Pipe (Wall)</option>
+            </select>
+          </div>
+          <div class="md:col-span-2 flex items-end">
+            <button id="geocodeBtn" type="button"
+              class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-xl text-sm transition">
+              Load Grid
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Interactive 25x16 3m x 3m Property Grid -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md flex flex-col gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-emerald-400">
+              Step 2: Click Any 3m × 3m (10ft × 10ft) Square on Your Property
+            </h2>
+            <p class="text-xs text-slate-400">
+              Select a tool below, then click the matching square on the satellite parcel grid. TankSquare resolves <code class="text-amber-300">what3words</code> & hose pull automatically.
+            </p>
+          </div>
+          <span id="parkingStatusPill" class="text-xs font-bold px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+            Parking Status: SUGGESTED (Pending Driver Verification)
+          </span>
+        </div>
+
+        <!-- Mode Selector Toolbar -->
+        <div class="flex flex-wrap gap-2">
+          <button type="button" data-mode="tank" class="mode-btn bg-orange-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl ring-2 ring-white">
+            🟠 1. Pin Tank / Fill Pipe (T)
+          </button>
+          <button type="button" data-mode="p1" class="mode-btn bg-blue-600/80 hover:bg-blue-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl">
+            🔵 2. Suggested Tanker Parking (P1)
+          </button>
+          <button type="button" data-mode="p2" class="mode-btn bg-cyan-700/80 hover:bg-cyan-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl">
+            ❄️ 3. Winter Backup Parking (P2)
+          </button>
+          <button type="button" data-mode="waypoint" class="mode-btn bg-purple-700/80 hover:bg-purple-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl">
+            🟣 4. Hose Corner Bend (W)
+          </button>
+          <button type="button" data-mode="hazard" class="mode-btn bg-red-700/80 hover:bg-red-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl">
+            ⚠️ 5. Septic / No-Drive Zone (!)
+          </button>
+        </div>
+
+        <!-- The 25x16 3m Grid Board + SVG Hose Line Overlay -->
+        <div class="relative rounded-xl overflow-hidden border-2 border-slate-700 shadow-inner">
+          <div id="gridBoard" class="grid-board"></div>
+          <svg id="hoseSvg" class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 250 160" preserveAspectRatio="none"></svg>
+        </div>
+
+        <!-- Grid Legend -->
+        <div class="flex flex-wrap items-center justify-between text-xs text-slate-400 pt-1 gap-2">
+          <div class="flex flex-wrap items-center gap-4">
+            <span>🟫 Brown: Main House & Garage Roof</span>
+            <span>⬜ Gray: Paved Driveway & Turnaround</span>
+            <span>⬛ Bottom Row: Public Road Apron</span>
+          </div>
+          <div id="coordsFooter" class="font-mono text-slate-300">Parcel Center: 44.2601, -72.5754</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Live Hose-Reach Meter, W3W Readout, Photos & Save to GCP Firestore -->
+    <aside class="lg:col-span-4 flex flex-col gap-4">
+
+      <!-- Live Bobtail Hose-Reach & NFPA 58 Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-bold uppercase tracking-wider text-emerald-400">
+            Live Bobtail Hose-Reach Check
+          </h3>
+          <span id="hoseBadge" class="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+            WITHIN REEL LIMIT
+          </span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 my-3 text-center">
+          <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+            <div class="text-[11px] text-slate-400">Straight Line</div>
+            <div id="straightFt" class="text-lg font-black text-white">76.0 ft</div>
+          </div>
+          <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+            <div class="text-[11px] text-slate-400">Practical (+15%)</div>
+            <div id="practicalFt" class="text-lg font-black text-emerald-400">112.0 ft</div>
+          </div>
+          <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+            <div class="text-[11px] text-slate-400">Truck Max Reel</div>
+            <div id="maxHoseFt" class="text-lg font-black text-amber-300">150 ft</div>
+          </div>
+        </div>
+
+        <div class="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden mb-2">
+          <div id="hoseBar" class="bg-emerald-500 h-full transition-all duration-300" style="width: 74%"></div>
+        </div>
+        <p id="hoseRecommendation" class="text-xs text-slate-300 leading-relaxed"></p>
+      </div>
+
+      <!-- Resolved what3words & Selected Squares Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md space-y-2.5 text-xs">
+        <h3 class="text-sm font-bold uppercase tracking-wider text-emerald-400">
+          Auto-Resolved 3m Squares (what3words)
+        </h3>
+        <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+          <div>
+            <div class="text-slate-400">🟠 Tank / Fill Location (T)</div>
+            <div id="tankW3W" class="font-mono font-bold text-orange-400 text-sm">///loading...</div>
+          </div>
+          <span id="tankCellCode" class="bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded font-mono font-bold">R6-C18</span>
+        </div>
+
+        <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+          <div>
+            <div class="text-slate-400">🔵 Suggested Tanker Bay (P1)</div>
+            <div id="p1W3W" class="font-mono font-bold text-sky-400 text-sm">///loading...</div>
+          </div>
+          <span id="p1CellCode" class="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono font-bold">R11-C12</span>
+        </div>
+
+        <div class="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+          <div>
+            <div class="text-slate-400">❄️ Winter Backup Parking (P2)</div>
+            <div id="p2W3W" class="font-mono font-bold text-cyan-400 text-sm">///loading...</div>
+          </div>
+          <span id="p2CellCode" class="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-mono font-bold">R15-C9</span>
+        </div>
+      </div>
+
+      <!-- Site Notes, Gate Code, Photo & 33,000-lb Weight Disclaimer -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md space-y-3 text-xs">
+        <h3 class="text-sm font-bold uppercase tracking-wider text-emerald-400">
+          Step 3: Access Notes & Optional Tank Photo
+        </h3>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-slate-400 mb-1">Gate Code (Optional)</label>
+            <input id="gateCodeInput" type="text" placeholder="e.g. #4421"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Dog / Pet Advisory</label>
+            <input id="petsInput" type="text" placeholder="e.g. Dog indoors"
+              class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">Driver Delivery Note</label>
+          <textarea id="notesInput" rows="2"
+            class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white"
+            placeholder="e.g. Tank is behind cedar hedge on east side of house."></textarea>
+        </div>
+
+        <!-- Optional GCS Photo Upload -->
+        <div class="bg-slate-950 border border-dashed border-slate-700 rounded-xl p-2.5 flex items-center justify-between gap-2">
+          <div>
+            <div class="font-semibold text-slate-200">📷 Add Tank / Driveway Photo (GCS)</div>
+            <div id="photoStatus" class="text-[11px] text-slate-400">Helps driver spot buried domes or snow stakes</div>
+          </div>
+          <label class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer border border-slate-600">
+            Upload
+            <input id="photoInput" type="file" accept="image/*" class="hidden" />
+          </label>
+        </div>
+
+        <!-- 33,000-lb Tanker Weight Disclaimer Checkbox -->
+        <label class="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5 cursor-pointer">
+          <input id="weightAckCheckbox" type="checkbox" checked class="mt-0.5 rounded" />
+          <span class="text-[11px] text-amber-200 leading-snug">
+            <strong>Suggested Parking Notice:</strong> Loaded fuel bobtails weigh up to <strong>33,000 lbs</strong>. My parking selection (`P1`) is a <em>Suggested Spot</em> away from septic tanks; the CDL driver will verify final safe placement on delivery day.
+          </span>
+        </label>
+
+        <button id="savePassBtn" type="button"
+          class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 px-4 rounded-xl text-sm shadow-lg transition">
+          Save My TankSquare Pass (Free — No Account Needed)
+        </button>
+
+        <div id="saveBanner" class="hidden bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 p-2.5 rounded-xl text-xs font-semibold"></div>
+      </div>
+
+      <!-- Plaid-Style <script> Snippet & ERP Webhook Preview -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md text-xs space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-slate-300">Vendor Portal 1-Line `&lt;script&gt;` Embed:</span>
+          <button id="viewErpJsonBtn" type="button" class="text-sky-400 hover:underline font-semibold">
+            View Live ERP Export JSON
+          </button>
+        </div>
+        <pre id="scriptSnippet" class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-[11px] text-emerald-300 overflow-x-auto"></pre>
+      </div>
+
+    </aside>
+  </main>
+
+  <script>
+    const state = {
+      token: "ts_tok_gmp_vt_demo1",
+      vendor: null,
+      parcel: null,
+      activeMode: "tank",
+      tank: { row: 5, col: 17, lat: 44.2601, lng: -72.5754, w3w: "" },
+      p1: { row: 10, col: 11, lat: 44.2601, lng: -72.5754, w3w: "" },
+      p2: { row: 14, col: 8, lat: 44.2601, lng: -72.5754, w3w: "" },
+      waypoints: [{ row: 9, col: 17 }],
+      hazards: [{ row: 6, col: 20 }, { row: 7, col: 20 }],
+    };
+
+    function isCellInBox(r, c, box) {
+      return r >= box.row_start && r <= box.row_end && c >= box.col_start && c <= box.col_end;
+    }
+
+    function renderGrid() {
+      const board = document.getElementById("gridBoard");
+      board.innerHTML = "";
+      const lm = state.parcel ? state.parcel.landmarks : null;
+
+      for (let r = 0; r < 16; r++) {
+        for (let c = 0; c < 25; c++) {
+          const cell = document.createElement("div");
+          cell.className = "grid-cell";
+          cell.title = `Square R${r + 1}-C${c + 1} (3m × 3m)`;
+
+          if (lm) {
+            if (isCellInBox(r, c, lm.main_house)) cell.classList.add("cell-house");
+            else if (isCellInBox(r, c, lm.attached_garage)) cell.classList.add("cell-garage");
+            else if (isCellInBox(r, c, lm.paved_driveway) || isCellInBox(r, c, lm.turnaround_bay)) cell.classList.add("cell-driveway");
+            else if (isCellInBox(r, c, lm.public_road)) cell.classList.add("cell-road");
+          }
+
+          if (state.tank.row === r && state.tank.col === c) {
+            cell.classList.add("marker-tank");
+            cell.textContent = "T";
+          } else if (state.p1.row === r && state.p1.col === c) {
+            cell.classList.add("marker-p1");
+            cell.textContent = "P1";
+          } else if (state.p2 && state.p2.row === r && state.p2.col === c) {
+            cell.classList.add("marker-p2");
+            cell.textContent = "P2";
+          } else if (state.waypoints.some((w) => w.row === r && w.col === c)) {
+            cell.classList.add("marker-wp");
+            cell.textContent = "W";
+          } else if (state.hazards.some((h) => h.row === r && h.col === c)) {
+            cell.classList.add("marker-hz");
+            cell.textContent = "!";
+          }
+
+          cell.addEventListener("click", () => onSquareClick(r, c));
+          board.appendChild(cell);
+        }
+      }
+      renderHoseSvg();
+    }
+
+    function renderHoseSvg() {
+      const svg = document.getElementById("hoseSvg");
+      const pts = [state.p1, ...state.waypoints, state.tank];
+      const polyPoints = pts.map((p) => `${p.col * 10 + 5},${p.row * 10 + 5}`).join(" ");
+      svg.innerHTML = `
+        <polyline points="${polyPoints}" fill="none" stroke="#facc15" stroke-width="2.4" stroke-dasharray="4,2" />
+      `;
+    }
+
+    async function onSquareClick(r, c) {
+      if (state.activeMode === "tank") {
+        state.tank.row = r;
+        state.tank.col = c;
+      } else if (state.activeMode === "p1") {
+        state.p1.row = r;
+        state.p1.col = c;
+      } else if (state.activeMode === "p2") {
+        state.p2 = { row: r, col: c, lat: state.parcel.parcel_center_lat, lng: state.parcel.parcel_center_lng };
+      } else if (state.activeMode === "waypoint") {
+        const idx = state.waypoints.findIndex((w) => w.row === r && w.col === c);
+        if (idx >= 0) state.waypoints.splice(idx, 1);
+        else state.waypoints.push({ row: r, col: c });
+      } else if (state.activeMode === "hazard") {
+        const idx = state.hazards.findIndex((h) => h.row === r && h.col === c);
+        if (idx >= 0) state.hazards.splice(idx, 1);
+        else state.hazards.push({ row: r, col: c });
+      }
+      renderGrid();
+      await refreshCalculationsAndW3W();
+    }
+
+    async function refreshCalculationsAndW3W() {
+      if (!state.parcel || !state.vendor) return;
+      const cLat = state.parcel.parcel_center_lat;
+      const cLng = state.parcel.parcel_center_lng;
+
+      // Resolve W3W on-demand for Tank, P1, P2
+      const [tRes, p1Res, p2Res] = await Promise.all([
+        fetch(`/api/v1/w3w/convert-to-3wa?lat=${cLat}&lng=${cLng}&row=${state.tank.row}&col=${state.tank.col}`).then((r) => r.json()),
+        fetch(`/api/v1/w3w/convert-to-3wa?lat=${cLat}&lng=${cLng}&row=${state.p1.row}&col=${state.p1.col}`).then((r) => r.json()),
+        fetch(`/api/v1/w3w/convert-to-3wa?lat=${cLat}&lng=${cLng}&row=${state.p2.row}&col=${state.p2.col}`).then((r) => r.json()),
+      ]);
+
+      document.getElementById("tankW3W").textContent = tRes.w3w;
+      document.getElementById("tankCellCode").textContent = tRes.cell_label;
+      document.getElementById("p1W3W").textContent = p1Res.w3w;
+      document.getElementById("p1CellCode").textContent = p1Res.cell_label;
+      document.getElementById("p2W3W").textContent = p2Res.w3w;
+      document.getElementById("p2CellCode").textContent = p2Res.cell_label;
+
+      // Call live hose-reach calculation API
+      const calcResp = await fetch("/api/v1/resident/calculate-hose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parcel_center_lat: cLat,
+          parcel_center_lng: cLng,
+          tank_square: { row: state.tank.row, col: state.tank.col, lat: tRes.lat, lng: tRes.lng, w3w: tRes.w3w },
+          park_p1_square: { row: state.p1.row, col: state.p1.col, lat: p1Res.lat, lng: p1Res.lng, w3w: p1Res.w3w },
+          park_p2_square: { row: state.p2.row, col: state.p2.col, lat: p2Res.lat, lng: p2Res.lng, w3w: p2Res.w3w },
+          hose_waypoints: state.waypoints.map((w) => ({ row: w.row, col: w.col, lat: cLat, lng: cLng })),
+          hazard_squares: state.hazards.map((h) => ({ row: h.row, col: h.col, lat: cLat, lng: cLng })),
+          vendor_max_hose_ft: state.vendor.max_hose_ft,
+        }),
+      }).then((r) => r.json());
+
+      document.getElementById("straightFt").textContent = `${calcResp.straight_line_ft} ft`;
+      document.getElementById("practicalFt").textContent = `${calcResp.practical_pull_ft} ft`;
+      document.getElementById("maxHoseFt").textContent = `${calcResp.vendor_max_hose_ft} ft`;
+      document.getElementById("hoseRecommendation").textContent = calcResp.recommendation;
+
+      const pct = Math.min(100, Math.round((calcResp.practical_pull_ft / calcResp.vendor_max_hose_ft) * 100));
+      const bar = document.getElementById("hoseBar");
+      const badge = document.getElementById("hoseBadge");
+      bar.style.width = `${pct}%`;
+
+      if (calcResp.status === "ok") {
+        bar.className = "bg-emerald-500 h-full transition-all duration-300";
+        badge.className = "text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+        badge.textContent = "WITHIN REEL LIMIT";
+      } else if (calcResp.status === "warning") {
+        bar.className = "bg-amber-500 h-full transition-all duration-300";
+        badge.className = "text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40";
+        badge.textContent = "NEAR REEL LIMIT";
+      } else {
+        bar.className = "bg-red-500 h-full transition-all duration-300";
+        badge.className = "text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/40";
+        badge.textContent = "EXCEEDS REEL LIMIT";
+      }
+    }
+
+    async function loadSession(token) {
+      state.token = token;
+      const data = await fetch(`/api/v1/resident/session/${token}`).then((r) => r.json());
+      state.vendor = data.vendor;
+      state.parcel = data.parcel;
+
+      document.getElementById("vendorName").textContent = data.vendor.name;
+      document.getElementById("vendorHeader").style.backgroundColor = data.vendor.primary_color;
+      document.getElementById("customerSummary").textContent =
+        `${data.session.customer_name} • Acct #${data.session.customer_account_id}`;
+      document.getElementById("addressInput").value = data.session.street_address;
+      document.getElementById("tankTypeSelect").value = data.session.tank_type;
+      document.getElementById("scriptSnippet").textContent = data.session.widget_embed_snippet;
+      document.getElementById("coordsFooter").textContent =
+        `Parcel Center: ${data.parcel.parcel_center_lat}, ${data.parcel.parcel_center_lng}`;
+
+      if (data.site_pass) {
+        const sp = data.site_pass;
+        state.tank = sp.tank_square;
+        state.p1 = sp.park_p1_square;
+        if (sp.park_p2_square) state.p2 = sp.park_p2_square;
+        state.waypoints = sp.hose_waypoints || [];
+        state.hazards = sp.hazard_squares || [];
+        document.getElementById("gateCodeInput").value = sp.gate_code || "";
+        document.getElementById("petsInput").value = sp.pets_warning || "";
+        document.getElementById("notesInput").value = sp.access_notes || "";
+
+        const pill = document.getElementById("parkingStatusPill");
+        if (sp.parking_status === "driver_verified") {
+          pill.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+          pill.textContent = `Parking Status: DRIVER VERIFIED (${sp.verified_by_driver_id || "CDL Driver"})`;
+        } else {
+          pill.className = "text-xs font-bold px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40";
+          pill.textContent = "Parking Status: SUGGESTED (Pending Driver Verification)";
+        }
+      }
+
+      renderGrid();
+      await refreshCalculationsAndW3W();
+    }
+
+    // Event Listeners
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("ring-2", "ring-white"));
+        btn.classList.add("ring-2", "ring-white");
+        state.activeMode = btn.getAttribute("data-mode");
+      });
+    });
+
+    document.getElementById("vendorSelect").addEventListener("change", (e) => {
+      loadSession(e.target.value);
+    });
+
+    document.getElementById("geocodeBtn").addEventListener("click", async () => {
+      const addr = document.getElementById("addressInput").value;
+      const parcel = await fetch("/api/v1/resident/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ street_address: addr }),
+      }).then((r) => r.json());
+      state.parcel = parcel;
+      document.getElementById("coordsFooter").textContent =
+        `Parcel Center: ${parcel.parcel_center_lat}, ${parcel.parcel_center_lng}`;
+      renderGrid();
+      await refreshCalculationsAndW3W();
+    });
+
+    document.getElementById("gpsBtn").addEventListener("click", async () => {
+      const addr = document.getElementById("addressInput").value;
+      const parcel = await fetch("/api/v1/resident/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ street_address: addr, gps_lat: 44.26025, gps_lng: -72.57521 }),
+      }).then((r) => r.json());
+      state.parcel = parcel;
+      document.getElementById("coordsFooter").textContent =
+        `Phone Browser GPS Locked: ${parcel.parcel_center_lat}, ${parcel.parcel_center_lng}`;
+      await refreshCalculationsAndW3W();
+    });
+
+    document.getElementById("photoInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("category", "tank_dome");
+      formData.append("caption", file.name);
+      formData.append("file", file);
+      const res = await fetch(`/api/v1/resident/session/${state.token}/photos`, {
+        method: "POST",
+        body: formData,
+      }).then((r) => r.json());
+      document.getElementById("photoStatus").textContent = `Uploaded to GCS: ${res.gcs_uri}`;
+    });
+
+    document.getElementById("savePassBtn").addEventListener("click", async () => {
+      const payload = {
+        street_address: document.getElementById("addressInput").value,
+        parcel_center_lat: state.parcel.parcel_center_lat,
+        parcel_center_lng: state.parcel.parcel_center_lng,
+        tank_type: document.getElementById("tankTypeSelect").value,
+        tank_row: state.tank.row,
+        tank_col: state.tank.col,
+        park_p1_row: state.p1.row,
+        park_p1_col: state.p1.col,
+        park_p2_row: state.p2 ? state.p2.row : null,
+        park_p2_col: state.p2 ? state.p2.col : null,
+        waypoint_coords: state.waypoints.map((w) => ({ row: w.row, col: w.col })),
+        hazard_coords: state.hazards.map((h) => ({ row: h.row, col: h.col })),
+        driveway_weight_acknowledged: document.getElementById("weightAckCheckbox").checked,
+        gate_code: document.getElementById("gateCodeInput").value,
+        pets_warning: document.getElementById("petsInput").value,
+        access_notes: document.getElementById("notesInput").value,
+      };
+
+      const saved = await fetch(`/api/v1/resident/session/${state.token}/pass`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then((r) => r.json());
+
+      const banner = document.getElementById("saveBanner");
+      banner.classList.remove("hidden");
+      banner.textContent =
+        `Saved to GCP Firestore! Tank: ${saved.tank_square.w3w} | Suggested Park P1: ${saved.park_p1_square.w3w} (${saved.hose_metrics.practical_pull_ft} ft pull). Synced to ${state.vendor.name}.`;
+    });
+
+    document.getElementById("viewErpJsonBtn").addEventListener("click", () => {
+      if (state.vendor) {
+        window.open(`/api/v1/vendors/${state.vendor.vendor_id}/erp-export`, "_blank");
+      }
+    });
+
+    // Initialize
+    fetch("/api/v1/config/public")
+      .then((r) => r.json())
+      .then((cfg) => {
+        document.getElementById("envBadge").textContent = `GCP ENV: ${cfg.environment} (${cfg.gcp_project_id})`;
+      });
+    loadSession(state.token);
+  </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# Google Cloud Build - TankSquare DEV Environment (`dev` branch)
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'tanksquare-api-dev'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--set-env-vars=ENV=dev,GCP_PROJECT_ID=$PROJECT_ID,FIRESTORE_COLLECTION_PREFIX=dev_,GCS_BUCKET_NAME=${PROJECT_ID}-media,SEED_DEMO_DATA=true'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
