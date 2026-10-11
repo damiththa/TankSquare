@@ -5,6 +5,11 @@ on:
     branches:
       - dev
       - main
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'tanksquare' }}
+  REGION: ${{ vars.GCP_REGION || 'us-central1' }}
 
 jobs:
   test:
@@ -31,24 +36,11 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-      - name: Deploy TankSquare DEV to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: tanksquare-api-dev
-          region: ${{ vars.GCP_REGION || 'us-central1' }}
-          source: .
-          env_vars: |
-            ENV=dev
-            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
-            FIRESTORE_COLLECTION_PREFIX=dev_
-            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID }}-media
-            USE_GCP_SECRET_MANAGER=true
-            SEED_DEMO_DATA=true
-          secrets: |
-            GOOGLE_MAPS_API_KEY=tanksquare-google-maps-api-key:latest
-            W3W_API_KEY=tanksquare-w3w-api-key:latest
-            SESSION_SIGNING_SECRET=tanksquare-session-signing-secret:latest
-            VENDOR_API_SHARED_SECRET=tanksquare-vendor-api-secret:latest
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Build & Deploy TankSquare DEV via Cloud Build
+        run: |
+          gcloud builds submit --config deploy/cloudbuild.dev.yaml --project "${{ env.PROJECT_ID }}"
 
   deploy-prod:
     name: Deploy to GCP Cloud Run (PROD - tanksquare-api-prod)
@@ -61,22 +53,8 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-      - name: Deploy TankSquare PROD to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: tanksquare-api-prod
-          region: ${{ vars.GCP_REGION || 'us-central1' }}
-          source: .
-          env_vars: |
-            ENV=prod
-            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
-            FIRESTORE_COLLECTION_PREFIX=prod_
-            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID }}-media
-            USE_GCP_SECRET_MANAGER=true
-            REQUIRE_VENDOR_API_KEY=true
-            SEED_DEMO_DATA=false
-          secrets: |
-            GOOGLE_MAPS_API_KEY=tanksquare-google-maps-api-key:latest
-            W3W_API_KEY=tanksquare-w3w-api-key:latest
-            SESSION_SIGNING_SECRET=tanksquare-session-signing-secret:latest
-            VENDOR_API_SHARED_SECRET=tanksquare-vendor-api-secret:latest
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Build & Deploy TankSquare PROD via Cloud Build
+        run: |
+          gcloud builds submit --config deploy/cloudbuild.prod.yaml --project "${{ env.PROJECT_ID }}"
