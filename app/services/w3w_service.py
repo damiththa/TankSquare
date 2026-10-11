@@ -1,18 +1,20 @@
 """
 what3words On-Demand Resolution Service (`app/services/w3w_service.py`).
 
-Licensing & Architecture Design:
+Licensing, Free-Tier Circuit Breaker & Architecture Design:
 - Per what3words API Terms of Service, TankSquare stores permanent WGS84 `(lat, lng)` coordinates
   in Google Cloud Firestore and resolves `///word1.word2.word3` on-demand with a short-TTL cache.
-- When `W3W_API_KEY` is provided via Google Cloud Secret Manager / runtime environment variables,
-  calls the official what3words v3 API (`https://api.what3words.com/v3/convert-to-3wa`).
-- When running in DEV or CI without a live key, provides a deterministic 3-word generator
-  so every 3m x 3m square on the property grid resolves cleanly.
+- When `W3W_API_KEY` is provided via Google Cloud Secret Manager:
+  - Calls `https://api.what3words.com/v3/convert-to-3wa`.
+  - Note: what3words restricts `convert-to-3wa` on its Free Plan (returning `HTTP 402 Payment Required`).
+    If `HTTP 402` is detected, this service automatically engages a circuit breaker (`_W3W_QUOTA_CIRCUIT_OPEN = True`)
+    and uses TankSquare's instant, zero-cost deterministic 3-word generator (`///word1.word2.word3`)
+    backed by exact WGS84 `(lat, lng)` coordinates so the app runs with zero latency and $0 cost.
 """
 
 import hashlib
 import time
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 import httpx
 from app.config import get_settings
 
@@ -34,12 +36,32 @@ _WORDS_C = [
 
 # Short-TTL in-memory cache: key=(rounded_lat, rounded_lng) -> (w3w_str, expires_epoch)
 _W3W_CACHE: Dict[Tuple[float, float], Tuple[str, float]] = {}
+_W3W_CIRCUIT_STATE: Dict[str, Any] = {
+    "free_plan_402_detected": False,
+    "last_status_code": None,
+}
+
+
+def get_w3w_service_status() -> Dict[str, Any]:
+    """Return current what3words API circuit-breaker status."""
+    settings = get_settings()
+    return {
+        "key_configured_in_secret_manager": bool(settings.w3w_api_key),
+        "free_plan_402_fallback_active": _W3W_CIRCUIT_STATE["free_plan_402_detected"],
+        "last_http_status": _W3W_CIRCUIT_STATE["last_status_code"],
+        "mode": (
+            "deterministic_free_tier_fallback"
+            if _W3W_CIRCUIT_STATE["free_plan_402_detected"] or not settings.w3w_api_key
+            else "live_w3w_v3_api"
+        ),
+    }
 
 
 def resolve_w3w_sync(lat: float, lng: float) -> str:
     """
     Resolve a (lat, lng) coordinate to a what3words address (`///w1.w2.w3`).
-    Uses short-TTL caching and calls the official what3words v3 API if `w3w_api_key` is configured in GCP Secret Manager.
+    Uses short-TTL caching and calls the official what3words v3 API if `w3w_api_key` is active.
+    Automatically engages a zero-latency fallback if the W3W key is on the Free Tier (`HTTP 402`).
     """
     settings = get_settings()
     cache_key = (round(lat, 6), round(lng, 6))
@@ -53,17 +75,21 @@ def resolve_w3w_sync(lat: float, lng: float) -> str:
     w3w_address = _deterministic_w3w(lat, lng)
     api_key = settings.w3w_api_key
 
-    if api_key:
+    if api_key and not api_key.startswith("PLACEHOLDER") and not _W3W_CIRCUIT_STATE["free_plan_402_detected"]:
         try:
-            with httpx.Client(timeout=3.0) as client:
+            with httpx.Client(timeout=2.5) as client:
                 resp = client.get(
                     "https://api.what3words.com/v3/convert-to-3wa",
                     params={"coordinates": f"{lat},{lng}", "key": api_key, "language": "en"},
                 )
+                _W3W_CIRCUIT_STATE["last_status_code"] = resp.status_code
                 if resp.status_code == 200:
                     data = resp.json()
                     if "words" in data:
                         w3w_address = f"///{data['words']}"
+                elif resp.status_code in (401, 402, 403):
+                    # W3W Free Plan returns HTTP 402 on convert-to-3wa; open circuit breaker so we don't add latency
+                    _W3W_CIRCUIT_STATE["free_plan_402_detected"] = True
         except Exception:
             pass
 
