@@ -16,48 +16,23 @@
 
 ---
 
-## 2. Active Parked Reminder List (To Review & Refine Next)
+## 2. GitHub Backlog Tasks (Post-MVP Roadmap)
 
-### Item 1: GCP Cloud Shell Secret Manager Setup & Pushing `dev` / `main` to GitHub
-- **Status:** 🟡 Cloud Shell instructions & [`scripts/setup_gcp_cloudshell.sh`](../scripts/setup_gcp_cloudshell.sh) ready in [`docs/GCP_SETUP_INSTRUCTIONS.md`](./GCP_SETUP_INSTRUCTIONS.md).
-- **Next Step:** Push `dev` and `main` branches to `https://github.com/damiththa/TankSquare.git` and run the Cloud Shell setup.
-
-### Item 2: Approach 2 — Mobile-Browser Tanker Driver View (`/driver`) & Workflow Refinements
-- **Status:** 🟡 Initial browser view & API built ([`app/static/driver.html`](../app/static/driver.html), [`app/routers/driver.py`](../app/routers/driver.py)); ready for UX review.
-- **Key Questions to Review Together:**
-  - How the fuel truck driver launches the view from their in-cab tablet or phone browser (Cargas Mobile / ADD Systems Raven link vs. daily route view).
-  - Offline caching behavior via [`app/static/sw.js`](../app/static/sw.js) when driving into rural zero-bar dead zones.
-  - Whether drivers should also be able to snap a quick verification photo of the tank/fill pipe on delivery day.
-
-### Item 3: "Suggested Parking" (`P1`) vs. Driver-Verified Parking Workflow
-- **Status:** 🟡 Core state machine implemented (`parking_status: "suggested" | "driver_verified"`).
-- **Why We Parked This:**
-  - A loaded propane bobtail or heating-oil tanker weighs **26,000–33,000 lbs** (class 7/8 Hazmat vehicle).
-  - Homeowners might click a driveway square over a buried septic tank, weak culvert, or beneath low tree branches.
-  - Therefore, any homeowner selection is saved strictly as **`SUGGESTED` (*Pending CDL Driver Verification*)** along with a 33,000-lb weight/septic disclaimer checkbox.
-  - On first delivery, the CDL driver either taps **"1-Tap Confirm Suggested Parking"** or taps the actual square where they safely parked to upgrade the pass to **`DRIVER_VERIFIED`**.
-- **To Review:** Should a driver adjustment automatically notify the homeowner (e.g., *"Your driver verified safe tanker parking at square R12-C11"*), or stay internal for dispatchers/drivers?
-
-### Item 4: Propane Provider Billing & Pricing Model (B2B SaaS)
-- **Status:** ⏳ Parked for business model discussion.
-- **Core Rule:** **100% Free for Residents** — all billing is paid by the propane/heating-oil dealer.
-- **Options to Evaluate Together:**
-  1. **Flat Monthly SaaS Tier by Dealer Size** (e.g., Starter up to 1,500 active tanks; Growth up to 5,000 tanks; Enterprise/Co-op).
-  2. **Per-Verified-TankSquare Pass Fee** (e.g., small annual or one-time fee per mapped property, similar to Plaid's per-connected-account model).
-  3. **ROI Anchor for Dealers:** Avoiding just 1 winter "no-fill / couldn't find buried dome / short-hose" dry-run truck roll saves a propane dealer **$150–$300** in CDL driver hours and fuel.
-
-### Item 5: Low-Tech / Elderly Homeowner Ease-of-Use Refinements
-- **Status:** 🟡 Initial 3-step zero-jargon flow built; ready for usability review.
-- **Built-in Simplifications So Far:**
-  - Resident never sees or types `what3words` slashes (`///`) unless they want to—they just click visual squares on their roof/driveway photo.
-  - Step 1 auto-centers on their pre-filled address; Step 2 has large color-coded buttons; Step 3 is a single save button with no password or account creation.
-- **To Review:** Adding a "Need Help? Let Dispatch Pin It With You on a 30-Second Call" button or large-font accessibility toggle.
-
-### Item 6: Data Privacy, Homeowner Consent & Multi-Vendor Ownership Rules
-- **Status:** ⏳ Parked for legal/privacy architecture review.
-- **Key Questions to Review Together:**
-  - **Strict Tenant Isolation (`vendor_id`):** Ensuring Vendor A (`gmp_vt`) can never query or view Vendor B's (`aho_ny`) customer passes or GCS photos.
-  - **Photo & Gate-Code Privacy:** Signed/expiring GCS URLs vs. vendor-scoped access tokens; automatic redaction or retention policies when a homeowner moves or switches fuel providers.
-
-### Item 7: Earlier Option 1 — E-Commerce / Package Delivery "Context Pass"
-- **Status:** ⏳ Parked for future product expansion after TankSquare (Propane & Heating Oil).
+- [x] **Task 1: GCP Secret Manager, GitHub Actions CI/CD & Live Cloud Run Deployment**
+  - `DEV` (`dev` branch $\rightarrow$ `tanksquare-api-dev`): `https://tanksquare-api-dev-339694762975.us-central1.run.app/`
+  - `PROD` (`main` branch $\rightarrow$ `tanksquare-api-prod`, manual dispatch only): `https://tanksquare-api-prod-339694762975.us-central1.run.app/`
+- [ ] **Task 2: Approach 2 — Mobile-Browser Tanker Driver View (`/driver`) & Workflow Refinements**
+  - Review how the fuel truck driver launches the view from their in-cab tablet or phone browser (Cargas Mobile / ADD Systems Raven link vs. daily route view).
+  - Verify offline caching behavior via [`app/static/sw.js`](../app/static/sw.js) when driving into rural zero-bar dead zones.
+  - Decide whether drivers can snap a quick verification photo of the tank/fill pipe on delivery day.
+- [ ] **Task 3: "Suggested Parking" (`P1`) vs. CDL Driver-Verified Parking Workflow**
+  - Loaded propane bobtails / heating-oil tankers weigh **26,000–33,000 lbs**; resident selections save as `SUGGESTED` (*Pending CDL Driver Verification*) until a CDL driver confirms or relocates `P1` to `DRIVER_VERIFIED`.
+  - Decide whether a driver adjustment notifies the homeowner or remains internal to dispatch/drivers.
+- [ ] **Task 4: Propane Provider Billing & Pricing Model (B2B SaaS — 100% Free for Residents)**
+  - Evaluate Flat Monthly SaaS Tiers by dealer size vs. Per-Verified-TankSquare Pass fee.
+- [ ] **Task 5: Low-Tech / Elderly Homeowner Ease-of-Use Refinements**
+  - Review adding a *"Need Help? Let Dispatch Pin It With You on a 30-Second Call"* option and large-font accessibility toggle.
+- [ ] **Task 6: Data Privacy, Homeowner Consent & Multi-Vendor Ownership Rules**
+  - Review strict tenant isolation (`vendor_id`), signed/expiring GCS photo URLs, and retention policies when a homeowner moves or switches fuel providers.
+- [ ] **Task 7: E-Commerce / Package Delivery "Context Pass" Expansion**
+  - Future product expansion after TankSquare (Propane & Heating Oil).

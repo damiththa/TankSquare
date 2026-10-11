@@ -124,3 +124,16 @@ def test_driver_verify_and_relocate_parking() -> None:
     assert verified["verified_by_driver_id"] == "DRV-777"
     assert verified["park_p1_square"]["row"] == 11
     assert verified["park_p1_square"]["col"] == 10
+
+
+def test_browser_views_have_valid_script_tags() -> None:
+    root_resp = client.get("/")
+    assert root_resp.status_code == 200
+    assert root_resp.text.count("<script") == 2
+    assert root_resp.text.count("</script>") == 2
+
+    driver_resp = client.get("/driver")
+    assert driver_resp.status_code == 200
+    assert driver_resp.text.count("<script") == 2
+    assert driver_resp.text.count("</script>") == 2
+

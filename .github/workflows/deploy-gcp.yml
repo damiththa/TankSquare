@@ -4,8 +4,16 @@ on:
   push:
     branches:
       - dev
-      - main
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Cloud Run Environment to deploy (dev or prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || 'tanksquare' }}
@@ -28,7 +36,9 @@ jobs:
   deploy-dev:
     name: Deploy to GCP Cloud Run (DEV - tanksquare-api-dev)
     needs: test
-    if: github.ref == 'refs/heads/dev'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'dev')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +55,7 @@ jobs:
   deploy-prod:
     name: Deploy to GCP Cloud Run (PROD - tanksquare-api-prod)
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'prod'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
