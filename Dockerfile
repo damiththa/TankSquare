@@ -10,9 +10,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy TankSquare application code
+# Copy TankSquare application code (No .env files are ever baked into the image;
+# Cloud Run injects configuration via env vars and Google Cloud Secret Manager)
 COPY app ./app
-COPY .env.dev .env.prod ./
 
 EXPOSE 8080
 

@@ -1,8 +1,8 @@
 """
 TankSquare - Main FastAPI Application Entrypoint (`app/main.py`).
 
-Cloud-Direct on Google Cloud Platform (Cloud Run + Cloud Firestore + Cloud Storage).
-Zero SQLite, Zero Resident Account Creation, Zero Resident Billing, 100% Browser-Based.
+Cloud-Direct on Google Cloud Platform (Cloud Run + Cloud Firestore + Cloud Storage + Secret Manager).
+Zero SQLite, Zero Hardcoded Secrets, Zero Resident Account Creation, Zero Resident Billing.
 """
 
 import os
@@ -26,7 +26,7 @@ app = FastAPI(
     description=(
         "Multi-Vendor B2B SaaS & Plaid-Style `<script>` Browser Grid Extension for US Propane "
         "and Heating-Oil Providers. Built directly on Google Cloud Platform (Cloud Run, "
-        "Cloud Firestore, Cloud Storage, Google Maps Platform, and what3words API)."
+        "Cloud Firestore, Cloud Storage, Secret Manager, Google Maps Platform, and what3words API)."
     ),
 )
 
@@ -51,7 +51,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/api/v1/health", tags=["0. System & GCP Environment"])
 def health_check() -> Dict[str, Any]:
-    """Cloud Run readiness/liveness probe and active GCP environment summary."""
+    """Cloud Run readiness/liveness probe and active GCP environment summary (never exposes secrets)."""
     store = get_store()
     return {
         "status": "healthy",
@@ -59,10 +59,11 @@ def health_check() -> Dict[str, Any]:
         "version": settings.API_VERSION,
         "environment": settings.ENV,
         "is_prod": settings.is_prod,
-        "gcp_project_id": settings.GCP_PROJECT_ID,
-        "firestore_collection_prefix": settings.FIRESTORE_COLLECTION_PREFIX,
-        "gcs_bucket": settings.GCS_BUCKET_NAME,
+        "gcp_project_configured": bool(settings.GCP_PROJECT_ID),
+        "firestore_collection_prefix": settings.effective_collection_prefix,
+        "gcs_bucket": settings.effective_gcs_bucket,
         "gcp_live_adc_connected": store.gcp_live_connected,
+        "secret_manager_enabled": settings.USE_GCP_SECRET_MANAGER,
         "sqlite_used": False,
         "resident_account_required": settings.RESIDENT_ACCOUNT_REQUIRED,
         "resident_billing_enabled": settings.RESIDENT_BILLING_ENABLED,
@@ -71,13 +72,13 @@ def health_check() -> Dict[str, Any]:
 
 @app.get("/api/v1/config/public", tags=["0. System & GCP Environment"])
 def get_public_browser_config() -> Dict[str, Any]:
-    """Return safe public configuration for the 100% browser-based frontends (`index.html`, `driver.html`, `widget.js`)."""
+    """Return safe public configuration for the 100% browser-based frontends (never exposes raw secret keys)."""
     store = get_store()
     return {
         "environment": settings.ENV.upper(),
-        "gcp_project_id": settings.GCP_PROJECT_ID,
-        "google_maps_configured": bool(settings.GOOGLE_MAPS_API_KEY),
-        "w3w_live_api_configured": bool(settings.W3W_API_KEY),
+        "gcp_project_configured": bool(settings.GCP_PROJECT_ID),
+        "google_maps_configured": bool(settings.google_maps_api_key),
+        "w3w_live_api_configured": bool(settings.w3w_api_key),
         "resident_account_required": False,
         "resident_billing_enabled": False,
         "available_vendors": [v.model_dump() for v in store.list_vendors()],

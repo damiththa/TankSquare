@@ -211,12 +211,12 @@ class GCPDataStore:
         photo_id = f"photo_{uuid.uuid4().hex[:8]}"
         ext = filename.split(".")[-1] if "." in filename else "jpg"
         blob_path = f"{self.settings.ENV}/{vendor_id}/{site_id}/{photo_id}.{ext}"
-        gcs_uri = f"gs://{self.settings.GCS_BUCKET_NAME}/{blob_path}"
-        public_url = f"https://storage.googleapis.com/{self.settings.GCS_BUCKET_NAME}/{blob_path}"
+        gcs_uri = f"gs://{self.settings.effective_gcs_bucket}/{blob_path}"
+        public_url = f"https://storage.googleapis.com/{self.settings.effective_gcs_bucket}/{blob_path}"
 
         if self.gcp_live_connected and self.storage_client is not None:
             try:
-                bucket = self.storage_client.bucket(self.settings.GCS_BUCKET_NAME)
+                bucket = self.storage_client.bucket(self.settings.effective_gcs_bucket)
                 blob = bucket.blob(blob_path)
                 blob.upload_from_string(content_bytes, content_type=content_type)
             except Exception:
@@ -496,7 +496,7 @@ class GCPDataStore:
                     SitePhoto(
                         photo_id=f"photo_seed_{item['vendor_id']}",
                         category=PhotoCategory.TANK_DOME,
-                        gcs_uri=f"gs://{self.settings.GCS_BUCKET_NAME}/{self.settings.ENV}/{item['vendor_id']}/{site_id}/tank.jpg",
+                        gcs_uri=f"gs://{self.settings.effective_gcs_bucket}/{self.settings.ENV}/{item['vendor_id']}/{site_id}/tank.jpg",
                         public_url="https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=600&q=80",
                         caption="Resident uploaded tank & approach view",
                     )

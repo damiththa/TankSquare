@@ -2,6 +2,9 @@
 
 **TankSquare** is a 100% browser-based, multi-vendor B2B SaaS platform and Plaid-style `<script>` extension for US propane and heating-oil dealers. It bridges **3m × 3m property grid squares (`what3words`)**, satellite parcel layouts, **waypoint-aware bobtail hose-reach calculations**, and **CDL driver parking verification**.
 
+- 📌 **[Parked Roadmap, Reminders & Decision Tracker (`docs/PARKED_ROADMAP_AND_REMINDERS.md`)](./docs/PARKED_ROADMAP_AND_REMINDERS.md)**
+- ☁️ **[GCP & Secret Manager Setup Guide (`docs/GCP_SETUP_INSTRUCTIONS.md`)](./docs/GCP_SETUP_INSTRUCTIONS.md)**
+
 ---
 
 ## Core Architectural Guarantees
@@ -9,9 +12,10 @@
 2. **Zero Separate Account for Residents:** Homeowners never sign up for or log into a TankSquare account. Identity is passed via a pre-authenticated session token in the propane vendor's `<script>` tag or SMS/email magic link.
 3. **100% Free for Residents:** Residents are never billed or shown payment screens. TankSquare is strictly B2B vendor-paid.
 4. **Cloud-Direct on Google Cloud Platform (Zero SQLite):** Built directly for **GCP Cloud Run**, **Google Cloud Firestore** (multi-tenant document store isolated by `vendor_id`), and **Google Cloud Storage (GCS)** (for compressed tank/driveway photos).
-5. **`DEV` and `PROD` Environments & Git Branches:**
-   - **`dev` branch $\rightarrow$ GCP `DEV` Environment** (`.env.dev`, Cloud Run `tanksquare-api-dev`, Firestore `dev_*` collections, pre-seeded with 3 demo fuel providers).
-   - **`main` branch $\rightarrow$ GCP `PROD` Environment** (`.env.prod`, Cloud Run `tanksquare-api-prod`, Firestore `prod_*` collections, strict vendor API key & origin enforcement).
+5. **Zero Hardcoded Secrets:** All sensitive keys (`GOOGLE_MAPS_API_KEY`, `W3W_API_KEY`, `SESSION_SIGNING_SECRET`, `VENDOR_API_SHARED_SECRET`) are stored in **Google Cloud Secret Manager** and referenced dynamically via [`app/services/secret_manager.py`](./app/services/secret_manager.py) or Cloud Run `--set-secrets`. No `.env.*` files (except `.env.example`) are ever tracked in Git.
+6. **`DEV` and `PROD` Environments & Git Branches:**
+   - **`dev` branch $\rightarrow$ GCP `DEV` Environment** ([`deploy/cloudbuild.dev.yaml`](./deploy/cloudbuild.dev.yaml), Cloud Run `tanksquare-api-dev`, Firestore `dev_*` collections).
+   - **`main` branch $\rightarrow$ GCP `PROD` Environment** ([`deploy/cloudbuild.prod.yaml`](./deploy/cloudbuild.prod.yaml), Cloud Run `tanksquare-api-prod`, Firestore `prod_*` collections).
 
 ---
 
@@ -21,7 +25,7 @@
 TankSquare/
 ├── app/
 │   ├── main.py                 # FastAPI entrypoint, CORS, GCP health checks & browser routes
-│   ├── config.py               # DEV vs PROD GCP settings (.env.dev / .env.prod)
+│   ├── config.py               # Zero-hardcoded-secrets configuration module
 │   ├── models.py               # Pydantic schemas (Vendors, Sessions, Grid/Hose Math, SitePasses)
 │   ├── routers/
 │   │   ├── vendors.py          # 1. B2B Vendor onboarding, <script> session tokens, ERP exports
@@ -29,6 +33,7 @@ TankSquare/
 │   │   ├── driver.py           # 3. Tanker Driver mobile view & Suggested->Verified parking API
 │   │   └── w3w.py              # 4. On-demand what3words v3 resolver with short-TTL cache
 │   ├── services/
+│   │   ├── secret_manager.py   # Dynamic secret loader (GCP Secret Manager + runtime env vars)
 │   │   ├── gcp_store.py        # Direct Google Cloud Firestore & Cloud Storage service
 │   │   ├── geo_grid.py         # 25x16 3m x 3m grid math, +15% hose slack & NFPA 58 checks
 │   │   └── w3w_service.py      # On-demand what3words API client
@@ -37,6 +42,9 @@ TankSquare/
 │       ├── index.html          # Approach 1: Resident Zero-Login Browser Portal
 │       ├── driver.html         # Approach 2: Mobile-Browser Tanker Driver View
 │       └── sw.js               # Rural offline Service Worker for zero-signal dead zones
+├── docs/
+│   ├── PARKED_ROADMAP_AND_REMINDERS.md  # Git-tracked reminder list & design roadmap
+│   └── GCP_SETUP_INSTRUCTIONS.md        # Step-by-step GCP & Secret Manager setup
 ├── deploy/
 │   ├── cloudbuild.dev.yaml     # GCP Cloud Build pipeline for DEV (`dev` branch)
 │   └── cloudbuild.prod.yaml    # GCP Cloud Build pipeline for PROD (`main` branch)
@@ -44,41 +52,7 @@ TankSquare/
 │   └── deploy-gcp.yml          # GitHub Actions CI/CD -> Cloud Run (DEV & PROD)
 ├── tests/
 │   └── test_api.py             # Pytest suite verifying APIs, grid math & tenant isolation
-├── .env.dev                    # GCP DEV configuration
-├── .env.prod                   # GCP PROD configuration
+├── .env.example                # Safe template documenting env vars & Secret Manager IDs
 ├── Dockerfile                  # Cloud Run Python 3.11 container image
 └── requirements.txt
-```
-
----
-
-## REST API Summary (`/docs`)
-
-| Actor / Domain | Method & Endpoint | Purpose |
-| :--- | :--- | :--- |
-| **0. System & GCP** | `GET /api/v1/health` | Cloud Run readiness probe, active `ENV` (`dev`/`prod`), Firestore status |
-| **0. System & GCP** | `GET /api/v1/config/public` | Browser public config & zero-login / zero-billing flags |
-| **1. Fuel Vendors & ERPs** | `GET /api/v1/vendors` | List registered propane/heating-oil providers |
-| **1. Fuel Vendors & ERPs** | `POST /api/v1/vendors` | Register/update a vendor (`max_hose_ft`, `erp_system`, `webhook_url`) |
-| **1. Fuel Vendors & ERPs** | `POST /api/v1/vendors/{vendor_id}/sessions` | Issue a Plaid-style zero-login session token & `<script>` snippet |
-| **1. Fuel Vendors & ERPs** | `GET /api/v1/vendors/{vendor_id}/erp-export` | Export passes formatted for **Cargas**, **ADD Systems**, **RCC**, or **Destwin** |
-| **2. Resident Portal** | `GET /api/v1/resident/session/{token}` | Resolve resident token, vendor branding, parcel layout & existing pass |
-| **2. Resident Portal** | `POST /api/v1/resident/geocode` | Geocode street address or phone browser GPS into 25×16 3m grid |
-| **2. Resident Portal** | `POST /api/v1/resident/calculate-hose` | Live waypoint hose-reach calculator (+15% slack & NFPA 58 check) |
-| **2. Resident Portal** | `PUT /api/v1/resident/session/{token}/pass` | Save TankSquare Pass to GCP Firestore (`parking_status="suggested"`) |
-| **2. Resident Portal** | `POST /api/v1/resident/session/{token}/photos` | Upload tank/driveway photo to Google Cloud Storage (GCS) |
-| **3. Tanker Driver** | `GET /api/v1/driver/routes` | Fetch daily route passes (cached offline by `sw.js`) |
-| **3. Tanker Driver** | `POST /api/v1/driver/pass/{site_id}/verify-parking` | 1-tap Confirm or Relocate Suggested Parking $\rightarrow$ `driver_verified` |
-| **4. what3words** | `GET /api/v1/w3w/convert-to-3wa` | Convert `(lat, lng)` or `(row, col)` to `///word.word.word` on demand |
-
----
-
-## Deploying to Google Cloud Platform (`DEV` & `PROD`)
-
-```bash
-# Deploy DEV (`dev` branch) to Google Cloud Run
-gcloud builds submit --config deploy/cloudbuild.dev.yaml --project tanksquare-dev
-
-# Deploy PROD (`main` branch) to Google Cloud Run
-gcloud builds submit --config deploy/cloudbuild.prod.yaml --project tanksquare-prod
 ```

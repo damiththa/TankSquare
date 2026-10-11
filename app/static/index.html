@@ -613,7 +613,7 @@
     fetch("/api/v1/config/public")
       .then((r) => r.json())
       .then((cfg) => {
-        document.getElementById("envBadge").textContent = `GCP ENV: ${cfg.environment} (${cfg.gcp_project_id})`;
+        document.getElementById("envBadge").textContent = `GCP ENV: ${cfg.environment}`;
       });
     loadSession(state.token);
   </script>

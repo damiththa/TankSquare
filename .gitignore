@@ -10,10 +10,15 @@ env/
 .pytest_cache/
 .ruff_cache/
 
-# Environment & Secrets (Never commit real GCP keys or production .env)
+# Environment & Secrets (NEVER commit any .env files or GCP credentials)
 .env
+.env.*
+!.env.example
 *.secret.json
-gcp-service-account*.json
+*service-account*.json
+*credentials*.json
+*.pem
+*.key
 
 # OS
 .DS_Store

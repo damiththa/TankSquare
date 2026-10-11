@@ -4,9 +4,9 @@ what3words On-Demand Resolution Service (`app/services/w3w_service.py`).
 Licensing & Architecture Design:
 - Per what3words API Terms of Service, TankSquare stores permanent WGS84 `(lat, lng)` coordinates
   in Google Cloud Firestore and resolves `///word1.word2.word3` on-demand with a short-TTL cache.
-- When `W3W_API_KEY` is configured in GCP Secret Manager, calls the official what3words v3 API
-  (`https://api.what3words.com/v3/convert-to-3wa`).
-- When running in DEV or CI without a live key, provides a deterministic, realistic 3-word generator
+- When `W3W_API_KEY` is provided via Google Cloud Secret Manager / runtime environment variables,
+  calls the official what3words v3 API (`https://api.what3words.com/v3/convert-to-3wa`).
+- When running in DEV or CI without a live key, provides a deterministic 3-word generator
   so every 3m x 3m square on the property grid resolves cleanly.
 """
 
@@ -39,7 +39,7 @@ _W3W_CACHE: Dict[Tuple[float, float], Tuple[str, float]] = {}
 def resolve_w3w_sync(lat: float, lng: float) -> str:
     """
     Resolve a (lat, lng) coordinate to a what3words address (`///w1.w2.w3`).
-    Uses short-TTL caching and calls the official what3words v3 API if `W3W_API_KEY` is set.
+    Uses short-TTL caching and calls the official what3words v3 API if `w3w_api_key` is configured in GCP Secret Manager.
     """
     settings = get_settings()
     cache_key = (round(lat, 6), round(lng, 6))
@@ -51,20 +51,20 @@ def resolve_w3w_sync(lat: float, lng: float) -> str:
             return cached_val
 
     w3w_address = _deterministic_w3w(lat, lng)
+    api_key = settings.w3w_api_key
 
-    if settings.W3W_API_KEY and settings.W3W_API_KEY != "your_what3words_api_key_here":
+    if api_key:
         try:
             with httpx.Client(timeout=3.0) as client:
                 resp = client.get(
                     "https://api.what3words.com/v3/convert-to-3wa",
-                    params={"coordinates": f"{lat},{lng}", "key": settings.W3W_API_KEY, "language": "en"},
+                    params={"coordinates": f"{lat},{lng}", "key": api_key, "language": "en"},
                 )
                 if resp.status_code == 200:
                     data = resp.json()
                     if "words" in data:
                         w3w_address = f"///{data['words']}"
         except Exception:
-            # Graceful fallback to deterministic 3-word address if network/API is unreachable
             pass
 
     _W3W_CACHE[cache_key] = (w3w_address, now + settings.W3W_CACHE_TTL_SECONDS)

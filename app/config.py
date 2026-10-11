@@ -1,8 +1,12 @@
 """
-TankSquare Configuration Module (DEV & PROD GCP Environments).
+TankSquare Configuration Module (`app/config.py`).
 
-Supports direct execution on Google Cloud Run with Cloud Firestore and Cloud Storage.
-Automatically selects `.env.dev` or `.env.prod` based on the `ENV` environment variable.
+Zero Hardcoded Secrets Architecture:
+- All sensitive keys (`GOOGLE_MAPS_API_KEY`, `W3W_API_KEY`, `SESSION_SIGNING_SECRET`,
+  `VENDOR_API_SHARED_SECRET`) are loaded at runtime via `app/services/secret_manager.py`
+  from Cloud Run `--set-secrets` environment bindings or directly from Google Cloud Secret Manager.
+- Non-sensitive environment toggles (`ENV=dev` vs `ENV=prod`) are read from environment variables
+  (or an untracked local `.env` file).
 """
 
 import os
@@ -10,32 +14,26 @@ from functools import lru_cache
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-def _resolve_env_file() -> str:
-    env = os.getenv("ENV", "dev").lower().strip()
-    if os.path.exists(".env"):
-        return ".env"
-    return ".env.prod" if env == "prod" else ".env.dev"
+from app.services.secret_manager import get_secret
 
 
 class Settings(BaseSettings):
-    """Application & Google Cloud Platform configuration settings."""
+    """Application & Google Cloud Platform configuration settings (Zero hardcoded secrets)."""
 
     ENV: str = "dev"  # "dev" or "prod"
     APP_NAME: str = "TankSquare"
     API_VERSION: str = "1.0.0"
     PORT: int = 8080
 
-    # Google Cloud Platform (Direct Firestore & Cloud Storage — Zero SQLite)
-    GCP_PROJECT_ID: str = "tanksquare-dev"
+    # Google Cloud Platform Project & Resource Identifiers (Injected by Cloud Run / CI)
+    GCP_PROJECT_ID: str = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
     FIRESTORE_DATABASE: str = "(default)"
-    FIRESTORE_COLLECTION_PREFIX: str = "dev_"
-    GCS_BUCKET_NAME: str = "tanksquare-dev-media"
+    FIRESTORE_COLLECTION_PREFIX: str = ""
+    GCS_BUCKET_NAME: str = ""
+    USE_GCP_SECRET_MANAGER: bool = False
 
-    # External Geo & Grid APIs
-    GOOGLE_MAPS_API_KEY: str = ""
-    W3W_API_KEY: str = ""
-    W3W_CACHE_TTL_SECONDS: int = 86400  # Compliant short-TTL cache (<30 days per W3W ToS)
+    # Non-sensitive cache TTL (<30 days per W3W ToS)
+    W3W_CACHE_TTL_SECONDS: int = 86400
 
     # Multi-Vendor Security & Environment Controls
     ALLOWED_ORIGINS: str = "*"
@@ -47,7 +45,7 @@ class Settings(BaseSettings):
     RESIDENT_BILLING_ENABLED: bool = False   # 100% Free for residents; B2B vendor-paid only
 
     model_config = SettingsConfigDict(
-        env_file=_resolve_env_file(),
+        env_file=".env" if os.path.exists(".env") else None,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -57,6 +55,54 @@ class Settings(BaseSettings):
         return self.ENV.lower().strip() == "prod"
 
     @property
+    def effective_collection_prefix(self) -> str:
+        if self.FIRESTORE_COLLECTION_PREFIX:
+            return self.FIRESTORE_COLLECTION_PREFIX
+        return "prod_" if self.is_prod else "dev_"
+
+    @property
+    def effective_gcs_bucket(self) -> str:
+        if self.GCS_BUCKET_NAME:
+            return self.GCS_BUCKET_NAME
+        if self.GCP_PROJECT_ID:
+            return f"{self.GCP_PROJECT_ID}-media"
+        return f"tanksquare-{self.ENV.lower()}-media"
+
+    @property
+    def google_maps_api_key(self) -> str:
+        return get_secret(
+            "GOOGLE_MAPS_API_KEY",
+            gcp_secret_id="tanksquare-google-maps-api-key",
+            project_id=self.GCP_PROJECT_ID,
+        )
+
+    @property
+    def w3w_api_key(self) -> str:
+        return get_secret(
+            "W3W_API_KEY",
+            gcp_secret_id="tanksquare-w3w-api-key",
+            project_id=self.GCP_PROJECT_ID,
+        )
+
+    @property
+    def session_signing_secret(self) -> str:
+        return get_secret(
+            "SESSION_SIGNING_SECRET",
+            gcp_secret_id="tanksquare-session-signing-secret",
+            project_id=self.GCP_PROJECT_ID,
+            generate_ephemeral_if_missing=True,
+        )
+
+    @property
+    def vendor_api_shared_secret(self) -> str:
+        return get_secret(
+            "VENDOR_API_SHARED_SECRET",
+            gcp_secret_id="tanksquare-vendor-api-secret",
+            project_id=self.GCP_PROJECT_ID,
+            generate_ephemeral_if_missing=not self.is_prod,
+        )
+
+    @property
     def cors_origins(self) -> List[str]:
         if self.ALLOWED_ORIGINS.strip() == "*":
             return ["*"]
@@ -64,7 +110,7 @@ class Settings(BaseSettings):
 
     def collection_name(self, base_name: str) -> str:
         """Return the environment-isolated Firestore collection name (`dev_vendors` vs `prod_vendors`)."""
-        return f"{self.FIRESTORE_COLLECTION_PREFIX}{base_name}"
+        return f"{self.effective_collection_prefix}{base_name}"
 
 
 @lru_cache()

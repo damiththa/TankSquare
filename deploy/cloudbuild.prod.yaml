@@ -1,16 +1,17 @@
 # Google Cloud Build - TankSquare PROD Environment (`main` branch)
+# Secrets are referenced from Google Cloud Secret Manager via `--set-secrets` (never hardcoded).
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
       - '.'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -18,13 +19,17 @@ steps:
       - 'run'
       - 'deploy'
       - 'tanksquare-api-prod'
-      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
-      - '--region=us-central1'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
+      - '--region=${_REGION}'
       - '--platform=managed'
       - '--allow-unauthenticated'
       - '--min-instances=0'
       - '--max-instances=10'
-      - '--set-env-vars=ENV=prod,GCP_PROJECT_ID=$PROJECT_ID,FIRESTORE_COLLECTION_PREFIX=prod_,GCS_BUCKET_NAME=${PROJECT_ID}-media,REQUIRE_VENDOR_API_KEY=true,SEED_DEMO_DATA=false'
+      - '--set-env-vars=ENV=prod,GCP_PROJECT_ID=$PROJECT_ID,FIRESTORE_COLLECTION_PREFIX=prod_,GCS_BUCKET_NAME=${PROJECT_ID}-media,USE_GCP_SECRET_MANAGER=true,REQUIRE_VENDOR_API_KEY=true,SEED_DEMO_DATA=false'
+      - '--set-secrets=GOOGLE_MAPS_API_KEY=tanksquare-google-maps-api-key:latest,W3W_API_KEY=tanksquare-w3w-api-key:latest,SESSION_SIGNING_SECRET=tanksquare-session-signing-secret:latest,VENDOR_API_SHARED_SECRET=tanksquare-vendor-api-secret:latest'
+
+substitutions:
+  _REGION: us-central1
 
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-prod:$COMMIT_SHA'

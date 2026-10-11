@@ -35,14 +35,20 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: tanksquare-api-dev
-          region: us-central1
+          region: ${{ vars.GCP_REGION || 'us-central1' }}
           source: .
           env_vars: |
             ENV=dev
             GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID_DEV }}
             FIRESTORE_COLLECTION_PREFIX=dev_
             GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID_DEV }}-media
+            USE_GCP_SECRET_MANAGER=true
             SEED_DEMO_DATA=true
+          secrets: |
+            GOOGLE_MAPS_API_KEY=tanksquare-google-maps-api-key:latest
+            W3W_API_KEY=tanksquare-w3w-api-key:latest
+            SESSION_SIGNING_SECRET=tanksquare-session-signing-secret:latest
+            VENDOR_API_SHARED_SECRET=tanksquare-vendor-api-secret:latest
 
   deploy-prod:
     name: Deploy to GCP Cloud Run (PROD)
@@ -59,12 +65,18 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: tanksquare-api-prod
-          region: us-central1
+          region: ${{ vars.GCP_REGION || 'us-central1' }}
           source: .
           env_vars: |
             ENV=prod
             GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID_PROD }}
             FIRESTORE_COLLECTION_PREFIX=prod_
             GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID_PROD }}-media
+            USE_GCP_SECRET_MANAGER=true
             REQUIRE_VENDOR_API_KEY=true
             SEED_DEMO_DATA=false
+          secrets: |
+            GOOGLE_MAPS_API_KEY=tanksquare-google-maps-api-key:latest
+            W3W_API_KEY=tanksquare-w3w-api-key:latest
+            SESSION_SIGNING_SECRET=tanksquare-session-signing-secret:latest
+            VENDOR_API_SHARED_SECRET=tanksquare-vendor-api-secret:latest
