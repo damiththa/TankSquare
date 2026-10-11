@@ -1,4 +1,4 @@
-name: Deploy TankSquare to Google Cloud Run (DEV & PROD)
+name: Deploy TankSquare to Google Cloud Run (Single GCP Project - DEV & PROD Isolated)
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
         run: pytest -v
 
   deploy-dev:
-    name: Deploy to GCP Cloud Run (DEV)
+    name: Deploy to GCP Cloud Run (DEV - tanksquare-api-dev)
     needs: test
     if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
@@ -30,7 +30,7 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY_DEV }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Deploy TankSquare DEV to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -39,9 +39,9 @@ jobs:
           source: .
           env_vars: |
             ENV=dev
-            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID_DEV }}
+            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
             FIRESTORE_COLLECTION_PREFIX=dev_
-            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID_DEV }}-media
+            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID }}-media
             USE_GCP_SECRET_MANAGER=true
             SEED_DEMO_DATA=true
           secrets: |
@@ -51,7 +51,7 @@ jobs:
             VENDOR_API_SHARED_SECRET=tanksquare-vendor-api-secret:latest
 
   deploy-prod:
-    name: Deploy to GCP Cloud Run (PROD)
+    name: Deploy to GCP Cloud Run (PROD - tanksquare-api-prod)
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -60,7 +60,7 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY_PROD }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
       - name: Deploy TankSquare PROD to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -69,9 +69,9 @@ jobs:
           source: .
           env_vars: |
             ENV=prod
-            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID_PROD }}
+            GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
             FIRESTORE_COLLECTION_PREFIX=prod_
-            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID_PROD }}-media
+            GCS_BUCKET_NAME=${{ secrets.GCP_PROJECT_ID }}-media
             USE_GCP_SECRET_MANAGER=true
             REQUIRE_VENDOR_API_KEY=true
             SEED_DEMO_DATA=false
