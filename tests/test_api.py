@@ -137,3 +137,12 @@ def test_browser_views_have_valid_script_tags() -> None:
     assert driver_resp.text.count("<script") == 2
     assert driver_resp.text.count("</script>") == 2
 
+
+def test_archify_architecture_endpoint_and_artifacts() -> None:
+    arch_resp = client.get("/architecture")
+    assert arch_resp.status_code == 200
+    assert "archify-diagram-title" in arch_resp.text
+    assert "archify-source-evidence-data" in arch_resp.text
+    assert "TankSquare — Cloud-Direct B2B Propane" in arch_resp.text
+
+

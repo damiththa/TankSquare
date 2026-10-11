@@ -2,8 +2,17 @@
 
 **TankSquare** is a 100% browser-based, multi-vendor B2B SaaS platform and Plaid-style `<script>` extension for US propane and heating-oil dealers. It bridges **3m × 3m property grid squares (`what3words`)**, satellite parcel layouts, **waypoint-aware bobtail hose-reach calculations**, and **CDL driver parking verification**.
 
+- 🏛️ **[System Architecture — Archify Diagram (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md)**
 - 📌 **[Parked Roadmap, Reminders & Decision Tracker (`docs/PARKED_ROADMAP_AND_REMINDERS.md`)](./docs/PARKED_ROADMAP_AND_REMINDERS.md)**
 - ☁️ **[GCP & Secret Manager Setup Guide (`docs/GCP_SETUP_INSTRUCTIONS.md`)](./docs/GCP_SETUP_INSTRUCTIONS.md)**
+
+---
+
+## System Architecture (Rendered via Archify v3.0)
+
+[![TankSquare Archify System Architecture](./docs/architecture/tanksquare-architecture.svg)](./docs/ARCHITECTURE.md)
+
+> **Interactive Viewer:** Open [`docs/architecture/tanksquare-architecture.html`](./docs/architecture/tanksquare-architecture.html) or visit [`/architecture`](https://tanksquare-api-dev-339694762975.us-central1.run.app/architecture) on Cloud Run for interactive pan/zoom, guided flow walkthroughs, and verified GitHub source line links.
 
 ---
 
@@ -15,7 +24,7 @@
 5. **Zero Hardcoded Secrets:** All sensitive keys (`GOOGLE_MAPS_API_KEY`, `W3W_API_KEY`, `SESSION_SIGNING_SECRET`, `VENDOR_API_SHARED_SECRET`) are stored in **Google Cloud Secret Manager** and referenced dynamically via [`app/services/secret_manager.py`](./app/services/secret_manager.py) or Cloud Run `--set-secrets`. No `.env.*` files (except `.env.example`) are ever tracked in Git.
 6. **`DEV` and `PROD` Environments & Git Branches:**
    - **`dev` branch $\rightarrow$ GCP `DEV` Environment** ([`deploy/cloudbuild.dev.yaml`](./deploy/cloudbuild.dev.yaml), Cloud Run `tanksquare-api-dev`, Firestore `dev_*` collections).
-   - **`main` branch $\rightarrow$ GCP `PROD` Environment** ([`deploy/cloudbuild.prod.yaml`](./deploy/cloudbuild.prod.yaml), Cloud Run `tanksquare-api-prod`, Firestore `prod_*` collections).
+   - **`main` branch $\rightarrow$ GCP `PROD` Environment** (manual `workflow_dispatch` only in [`.github/workflows/deploy-gcp.yml`](./.github/workflows/deploy-gcp.yml), Cloud Run `tanksquare-api-prod`, Firestore `prod_*` collections).
 
 ---
 

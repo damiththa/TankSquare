@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "TankSquare — Cloud-Direct B2B Propane & Heating-Oil Grid Architecture",
+    "subtitle": "3m×3m Parcel Grid, Waypoint Bobtail Hose-Reach Engine, Zero-Login Resident Portal & CDL Driver Verification",
+    "output": "docs/architecture/tanksquare-architecture.html",
+    "visual_preset": "blueprint",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/damiththa/TankSquare",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a9d1af0984552df04a10350149c9c859146d3e60"
+    },
+    "views": [
+      {
+        "id": "resident-drop-pin",
+        "label": "1. Resident Drop-Pin & Hose Math",
+        "focus": ["resident_portal", "fastapi_gateway", "geo_hose_engine", "external_geo_apis", "firestore_gcs_store"],
+        "note": "Homeowner enters address with zero login, pins tank & truck squares, and computes waypoint bobtail hose reach (+15% slack)."
+      },
+      {
+        "id": "driver-verification",
+        "label": "2. CDL Driver Field Verification",
+        "focus": ["driver_portal", "fastapi_gateway", "geo_hose_engine", "firestore_gcs_store", "vendor_webhook_hub", "dealer_erp"],
+        "note": "Tanker driver opens mobile browser view (with Service Worker offline cache), verifies/relocates pins, and syncs HMAC webhooks to ERP."
+      },
+      {
+        "id": "cicd-and-cost-guardrails",
+        "label": "3. CI/CD & $0 Free-Tier Guardrails",
+        "focus": ["github_cicd", "secret_circuit_guard", "fastapi_gateway", "geo_hose_engine", "firestore_gcs_store"],
+        "note": "GitHub Actions auto-deploys DEV (`dev` branch) and gates PROD on manual dispatch; Secret Manager & 9,500/mo quota cap prevent billing leaks."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "resident_portal",
+      "type": "frontend",
+      "label": "Resident Grid Portal",
+      "sublabel": "Zero-login 3m×3m & widget.js",
+      "brand": "javascript",
+      "tag": "browser UI",
+      "pos": [40, 95],
+      "size": [162, 68],
+      "sources": [
+        { "path": "app/static/index.html", "line": 1, "end_line": 621, "label": "Resident 3m×3m grid portal" },
+        { "path": "app/static/widget.js", "line": 1, "end_line": 114, "label": "Plaid-style vendor script" }
+      ]
+    },
+    {
+      "id": "driver_portal",
+      "type": "frontend",
+      "label": "CDL Driver View",
+      "sublabel": "Mobile browser & sw.js cache",
+      "brand": "javascript",
+      "tag": "browser UI",
+      "pos": [40, 240],
+      "size": [162, 68],
+      "sources": [
+        { "path": "app/static/driver.html", "line": 1, "end_line": 311, "label": "Driver verification & hose check" },
+        { "path": "app/static/sw.js", "line": 1, "end_line": 51, "label": "Offline Service Worker cache" }
+      ]
+    },
+    {
+      "id": "github_cicd",
+      "type": "messagebus",
+      "label": "GitHub Actions CI/CD",
+      "sublabel": "DEV auto / PROD manual",
+      "brand": "github-actions",
+      "tag": "Cloud Build",
+      "pos": [40, 385],
+      "size": [162, 68],
+      "sources": [
+        { "path": ".github/workflows/deploy-gcp.yml", "line": 1, "end_line": 70, "label": "DEV auto & PROD manual workflow" },
+        { "path": "deploy/cloudbuild.dev.yaml", "line": 1, "end_line": 36, "label": "Cloud Build DEV spec" },
+        { "path": "deploy/cloudbuild.prod.yaml", "line": 1, "end_line": 36, "label": "Cloud Build PROD spec" }
+      ]
+    },
+    {
+      "id": "secret_circuit_guard",
+      "type": "security",
+      "label": "Secret & Quota Guard",
+      "sublabel": "Secret Mgr & ≤9.5k/mo cap",
+      "brand": "google-cloud",
+      "tag": "security",
+      "pos": [330, 95],
+      "size": [168, 68],
+      "sources": [
+        { "path": "app/services/secret_manager.py", "line": 1, "end_line": 60, "label": "GCP Secret Manager loader" },
+        { "path": "app/config.py", "line": 1, "end_line": 123, "label": "Free-Tier circuit breaker config" }
+      ]
+    },
+    {
+      "id": "fastapi_gateway",
+      "type": "cloud",
+      "label": "Cloud Run FastAPI",
+      "sublabel": "tanksquare-api-dev & prod",
+      "brand": "fastapi",
+      "tag": "us-central1",
+      "pos": [330, 240],
+      "size": [168, 68],
+      "sources": [
+        { "path": "app/main.py", "line": 1, "end_line": 100, "label": "FastAPI entrypoint & routes" },
+        { "path": "app/routers/resident.py", "line": 1, "end_line": 261, "label": "Resident parcel & pin router" },
+        { "path": "app/routers/driver.py", "line": 1, "end_line": 120, "label": "Driver dispatch & verify router" }
+      ]
+    },
+    {
+      "id": "geo_hose_engine",
+      "type": "backend",
+      "label": "3m Grid & Hose Engine",
+      "sublabel": "25×16 parcel & +15% slack",
+      "brand": "python",
+      "tag": "NFPA 58 math",
+      "pos": [620, 95],
+      "size": [168, 68],
+      "sources": [
+        { "path": "app/services/geo_grid.py", "line": 1, "end_line": 301, "label": "3m grid, hose reach & 9.5k cap" },
+        { "path": "app/services/w3w_service.py", "line": 1, "end_line": 107, "label": "what3words v3 & 402 fallback" }
+      ]
+    },
+    {
+      "id": "firestore_gcs_store",
+      "type": "database",
+      "label": "Firestore & GCS Media",
+      "sublabel": "dev_*/prod_* & tank photos",
+      "brand": "firebase",
+      "tag": "nam5 store",
+      "pos": [620, 240],
+      "size": [168, 68],
+      "sources": [
+        { "path": "app/services/gcp_store.py", "line": 1, "end_line": 516, "label": "Firestore & Cloud Storage store" }
+      ]
+    },
+    {
+      "id": "vendor_webhook_hub",
+      "type": "backend",
+      "label": "Vendor & Webhook Hub",
+      "sublabel": "Tenant keys & HMAC sync",
+      "brand": "python",
+      "tag": "B2B API",
+      "pos": [620, 385],
+      "size": [168, 68],
+      "sources": [
+        { "path": "app/routers/vendors.py", "line": 1, "end_line": 147, "label": "Vendor onboarding & sessions" },
+        { "path": "app/routers/w3w.py", "line": 1, "end_line": 43, "label": "Grid square lookup router" }
+      ]
+    },
+    {
+      "id": "external_geo_apis",
+      "type": "external",
+      "label": "Google Maps & W3W",
+      "sublabel": "Geocoding & what3words v3",
+      "brand": "google-cloud",
+      "tag": "external geo",
+      "pos": [910, 95],
+      "size": [162, 68]
+    },
+    {
+      "id": "dealer_erp",
+      "type": "external",
+      "label": "Propane Dealer ERPs",
+      "sublabel": "Cargas, ADD Systems, MOGO",
+      "tag": "B2B webhooks",
+      "pos": [910, 385],
+      "size": [162, 68]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "GCP Project: tanksquare (Cloud Run us-central1 + Firestore nam5)",
+      "wraps": [
+        "secret_circuit_guard",
+        "fastapi_gateway",
+        "geo_hose_engine",
+        "firestore_gcs_store",
+        "vendor_webhook_hub"
+      ],
+      "pad": 26
+    }
+  ],
+  "connections": [
+    {
+      "id": "resident-to-gateway",
+      "from": "resident_portal",
+      "to": "fastapi_gateway",
+      "label": "HTTPS / parcel & pins",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "orthogonal-h"
+    },
+    {
+      "id": "driver-to-gateway",
+      "from": "driver_portal",
+      "to": "fastapi_gateway",
+      "label": "HTTPS / verify & cache",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "cicd-to-gateway",
+      "from": "github_cicd",
+      "to": "fastapi_gateway",
+      "label": "Cloud Build deploy",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "route": "orthogonal-h"
+    },
+    {
+      "id": "secrets-to-gateway",
+      "from": "secret_circuit_guard",
+      "to": "fastapi_gateway",
+      "label": "4 active secrets",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight"
+    },
+    {
+      "id": "gateway-to-geo",
+      "from": "fastapi_gateway",
+      "to": "geo_hose_engine",
+      "label": "grid & hose math",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "orthogonal-h"
+    },
+    {
+      "id": "gateway-to-store",
+      "from": "fastapi_gateway",
+      "to": "firestore_gcs_store",
+      "label": "dev_*/prod_* state",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "gateway-to-vendor",
+      "from": "fastapi_gateway",
+      "to": "vendor_webhook_hub",
+      "label": "B2B sessions & events",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "orthogonal-h"
+    },
+    {
+      "id": "geo-to-external",
+      "from": "geo_hose_engine",
+      "to": "external_geo_apis",
+      "label": "HTTPS (≤9.5k/mo cap)",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "vendor-to-erp",
+      "from": "vendor_webhook_hub",
+      "to": "dealer_erp",
+      "label": "HMAC webhook sync",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "100% Browser & Plaid-Style Extension",
+      "items": [
+        "Zero-login Resident Grid Portal (/) and embeddable <script> widget.js",
+        "25×16 3m×3m property grid with waypoint-aware bobtail hose reach (+15% slack)",
+        "CDL Tanker Driver mobile browser view (/driver) with Service Worker offline cache"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Cloud-Direct GCP & Environment Isolation",
+      "items": [
+        "Cloud Run services: tanksquare-api-dev (auto on dev push) & tanksquare-api-prod (manual dispatch)",
+        "Single Firestore (nam5) with strict dev_* / prod_* collection namespace isolation",
+        "Cloud Storage bucket gs://tanksquare-media/dev|prod/ for tank & gate hazard photos"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "$0 Free-Tier Cost & Security Guardrails",
+      "items": [
+        "Hard circuit breaker at 300/day & 9,500/month Google Maps calls (locked below 10,000 free tier)",
+        "On-demand what3words v3 resolution with deterministic HTTP 402 Free-Plan fallback",
+        "4 secrets loaded at startup from Google Cloud Secret Manager; HMAC-SHA256 ERP webhooks"
+      ]
+    }
+  ]
+}

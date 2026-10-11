@@ -98,3 +98,10 @@ def serve_resident_portal() -> FileResponse:
 def serve_driver_mobile_view() -> FileResponse:
     """Serve Approach 2: 100% Mobile-Browser Tanker Driver View & Parking Verification."""
     return FileResponse(os.path.join(STATIC_DIR, "driver.html"))
+
+
+@app.get("/architecture", include_in_schema=False)
+def serve_archify_architecture() -> FileResponse:
+    """Serve Interactive Archify v3.0 System Architecture Diagram (`app/static/architecture.html`)."""
+    return FileResponse(os.path.join(STATIC_DIR, "architecture.html"))
+

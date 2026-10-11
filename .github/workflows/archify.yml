@@ -1,0 +1,56 @@
+name: Render & Verify Archify Architecture
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - "docs/architecture/**"
+      - "scripts/render_archify.py"
+      - ".github/workflows/archify.yml"
+  workflow_dispatch:
+
+jobs:
+  archify-render:
+    name: Validate & Render TankSquare Archify Diagram
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout TankSquare Repository (Full History for Source Evidence)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20 (Archify Runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clone Archify v3.0 Skill
+        run: |
+          git clone --depth 1 https://github.com/tt-a1i/archify.git /tmp/archify
+
+      - name: Validate & Finalize with Official Archify CLI
+        run: |
+          node /tmp/archify/archify/bin/archify.mjs validate architecture \
+            docs/architecture/tanksquare.architecture.json \
+            --repo-root "${GITHUB_WORKSPACE}" \
+            --quality showcase
+
+      - name: Render Interactive Archify HTML + GitHub Inline SVG
+        run: |
+          python3 scripts/render_archify.py
+
+      - name: Upload Archify Architecture Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tanksquare-archify-architecture
+          path: |
+            docs/architecture/tanksquare.architecture.json
+            docs/architecture/tanksquare-architecture.html
+            docs/architecture/tanksquare-architecture.svg
