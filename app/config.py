@@ -1,12 +1,12 @@
 """
 TankSquare Configuration Module (`app/config.py`).
 
-Zero Hardcoded Secrets Architecture:
+Zero Hardcoded Secrets & Strict Free-Tier Cost Protection Architecture:
 - All sensitive keys (`GOOGLE_MAPS_API_KEY`, `W3W_API_KEY`, `SESSION_SIGNING_SECRET`,
   `VENDOR_API_SHARED_SECRET`) are loaded at runtime via `app/services/secret_manager.py`
   from Cloud Run `--set-secrets` environment bindings or directly from Google Cloud Secret Manager.
-- Non-sensitive environment toggles (`ENV=dev` vs `ENV=prod`) are read from environment variables
-  (or an untracked local `.env` file).
+- Enforces hard monthly request caps (`MAPS_MONTHLY_FREE_TIER_CAP=9500`, below Google Maps'
+  10,000/month free SKU limit) so TankSquare never spills into paid Pay-As-You-Go billing.
 """
 
 import os
@@ -34,6 +34,11 @@ class Settings(BaseSettings):
 
     # Non-sensitive cache TTL (<30 days per W3W ToS)
     W3W_CACHE_TTL_SECONDS: int = 86400
+
+    # Strict Free-Tier Hard Caps (Prevents Pay-As-You-Go Overage Charges)
+    ENFORCE_FREE_TIER_HARD_CAP: bool = True
+    MAPS_MONTHLY_FREE_TIER_CAP: int = 9500  # Google Maps Essentials gives 10,000 free/mo; stop at 9,500
+    MAPS_DAILY_SAFE_CAP: int = 300          # 300/day * 30 days = 9,000/mo (< 10,000 free/mo)
 
     # Multi-Vendor Security & Environment Controls
     ALLOWED_ORIGINS: str = "*"

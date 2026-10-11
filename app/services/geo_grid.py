@@ -1,20 +1,22 @@
 """
-3m x 3m Property Grid & Bobtail Hose-Reach Math Service.
+3m x 3m Property Grid & Bobtail Hose-Reach Math Service (`app/services/geo_grid.py`).
 
-Key Engineering Rules:
+Key Engineering & Free-Tier Cost Guardrails:
 - Each grid square is exactly 3.0 meters x 3.0 meters (9.84252 ft x 9.84252 ft).
 - Grid dimensions: 16 rows (North-to-South, 48m) x 25 columns (West-to-East, 75m).
-- Hose reach calculation supports:
-  1. Straight-line Euclidean distance in feet.
-  2. Multi-segment routed distance through `hose_waypoints` (bending around house corners/fences).
-  3. +15% practical hose slack buffer for ground friction, elevation, and reel tension.
-  4. NFPA 58 line-of-sight flag (warns driver if hose bends around a structure corner).
-  5. Septic/Hazard zone proximity check (warns if 33,000-lb bobtail parking P1/P2 is on or adjacent to a hazard square).
+- Strict Free-Tier Hard Cap (`MAPS_MONTHLY_FREE_TIER_CAP = 9500`, `MAPS_DAILY_SAFE_CAP = 300`):
+  Google Maps Platform gives 10,000 free calls/month per Essentials SKU. This service tracks
+  requests and refuses to call external paid Google Maps endpoints once 300/day or 9,500/month
+  is reached, guaranteeing $0.00 Pay-As-You-Go overage charges.
 """
 
 import hashlib
 import math
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+import httpx
+
+from app.config import get_settings
 from app.models import GridSquareCoord, HoseCalculationResponse
 
 SQUARE_SIZE_METERS = 3.0
@@ -25,6 +27,45 @@ GRID_ROWS = 16
 GRID_COLS = 25
 CENTER_ROW = 8
 CENTER_COL = 12
+
+# In-memory cache & Free-Tier Guardrail Counter ( prevents Pay-As-You-Go overages )
+_GEOCODE_CACHE: Dict[str, Tuple[float, float, str]] = {}
+_USAGE_TRACKER: Dict[str, int] = {
+    "month_key": int(datetime.utcnow().strftime("%Y%m")),
+    "day_key": int(datetime.utcnow().strftime("%Y%m%d")),
+    "monthly_calls": 0,
+    "daily_calls": 0,
+}
+
+
+def get_maps_free_tier_status() -> Dict[str, Any]:
+    """Return current Google Maps API usage vs. the hard Free-Tier cap."""
+    settings = get_settings()
+    _roll_counters_if_needed()
+    return {
+        "enforce_free_tier_hard_cap": settings.ENFORCE_FREE_TIER_HARD_CAP,
+        "google_free_sku_limit_monthly": 10000,
+        "tanksquare_hard_cap_monthly": settings.MAPS_MONTHLY_FREE_TIER_CAP,
+        "tanksquare_hard_cap_daily": settings.MAPS_DAILY_SAFE_CAP,
+        "current_month_calls": _USAGE_TRACKER["monthly_calls"],
+        "current_day_calls": _USAGE_TRACKER["daily_calls"],
+        "remaining_free_calls_this_month": max(
+            0, settings.MAPS_MONTHLY_FREE_TIER_CAP - _USAGE_TRACKER["monthly_calls"]
+        ),
+        "pay_as_you_go_blocked": True,
+    }
+
+
+def _roll_counters_if_needed() -> None:
+    now = datetime.utcnow()
+    cur_month = int(now.strftime("%Y%m"))
+    cur_day = int(now.strftime("%Y%m%d"))
+    if _USAGE_TRACKER["month_key"] != cur_month:
+        _USAGE_TRACKER["month_key"] = cur_month
+        _USAGE_TRACKER["monthly_calls"] = 0
+    if _USAGE_TRACKER["day_key"] != cur_day:
+        _USAGE_TRACKER["day_key"] = cur_day
+        _USAGE_TRACKER["daily_calls"] = 0
 
 
 def grid_cell_to_lat_lng(
@@ -125,10 +166,10 @@ def calculate_hose_reach(
     else:
         status = "ok"
 
-    # 6. NFPA 58 Line-of-Sight Check (if waypoints bend around a corner, flag for driver awareness)
+    # 6. NFPA 58 Line-of-Sight Check
     line_of_sight_clear = len(waypoints) == 0
 
-    # 7. Septic / Soft-Ground Hazard Conflict Check (is P1 or P2 on or adjacent to a hazard square?)
+    # 7. Septic / Soft-Ground Hazard Conflict Check
     hazard_conflict = False
     for hz in hazards:
         if abs(park_p1_square.row - hz.row) <= 1 and abs(park_p1_square.col - hz.col) <= 1:
@@ -178,8 +219,9 @@ def calculate_hose_reach(
 
 def geocode_address_to_parcel(street_address: str) -> Dict[str, Any]:
     """
-    Resolve a street address into parcel coordinates and a visual property footprint
-    so the browser can immediately draw the house, driveway, road, and 25x16 3m grid.
+    Resolve a street address into parcel coordinates and a visual property footprint.
+    Enforces `MAPS_MONTHLY_FREE_TIER_CAP` (9,500/mo) and `MAPS_DAILY_SAFE_CAP` (300/day)
+    so TankSquare NEVER exceeds Google Maps' 10,000/month free tier or triggers Pay-As-You-Go billing.
     """
     known_addresses = {
         "742 evergreen": (44.2601, -72.5754, "742 Evergreen Terrace, Montpelier, VT 05602"),
@@ -191,7 +233,45 @@ def geocode_address_to_parcel(street_address: str) -> Dict[str, Any]:
         if key in lowered:
             return _build_parcel_layout(formatted, lat, lng)
 
-    # Deterministic geocoding fallback for any custom US address entered in browser
+    if lowered in _GEOCODE_CACHE:
+        c_lat, c_lng, c_fmt = _GEOCODE_CACHE[lowered]
+        return _build_parcel_layout(c_fmt, c_lat, c_lng)
+
+    settings = get_settings()
+    _roll_counters_if_needed()
+
+    api_key = settings.google_maps_api_key
+    within_free_cap = (
+        not settings.ENFORCE_FREE_TIER_HARD_CAP
+        or (
+            _USAGE_TRACKER["monthly_calls"] < settings.MAPS_MONTHLY_FREE_TIER_CAP
+            and _USAGE_TRACKER["daily_calls"] < settings.MAPS_DAILY_SAFE_CAP
+        )
+    )
+
+    if api_key and not api_key.startswith("PLACEHOLDER") and within_free_cap:
+        try:
+            _USAGE_TRACKER["monthly_calls"] += 1
+            _USAGE_TRACKER["daily_calls"] += 1
+            with httpx.Client(timeout=3.0) as client:
+                resp = client.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": street_address.strip(), "key": api_key},
+                )
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    if payload.get("status") == "OK" and payload.get("results"):
+                        top = payload["results"][0]
+                        loc = top["geometry"]["location"]
+                        lat = round(float(loc["lat"]), 6)
+                        lng = round(float(loc["lng"]), 6)
+                        fmt = top.get("formatted_address", street_address.strip())
+                        _GEOCODE_CACHE[lowered] = (lat, lng, fmt)
+                        return _build_parcel_layout(fmt, lat, lng)
+        except Exception:
+            pass
+
+    # Zero-cost deterministic fallback when no key is set or free-tier cap is reached
     digest = hashlib.sha256(lowered.encode("utf-8")).hexdigest()
     lat_offset = ((int(digest[:6], 16) % 2000) - 1000) * 0.0001
     lng_offset = ((int(digest[6:12], 16) % 2000) - 1000) * 0.0001
@@ -210,6 +290,7 @@ def _build_parcel_layout(formatted_address: str, center_lat: float, center_lng: 
         "grid_cols": GRID_COLS,
         "square_size_meters": SQUARE_SIZE_METERS,
         "square_size_feet": round(SQUARE_SIZE_FEET, 2),
+        "free_tier_guardrail": get_maps_free_tier_status(),
         "landmarks": {
             "main_house": {"row_start": 4, "row_end": 8, "col_start": 10, "col_end": 16, "label": "Main Residence (Roof)"},
             "attached_garage": {"row_start": 5, "row_end": 8, "col_start": 7, "col_end": 9, "label": "Garage"},

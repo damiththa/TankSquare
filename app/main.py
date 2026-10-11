@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
 from app.routers import driver, resident, vendors, w3w
 from app.services.gcp_store import get_store
+from app.services.geo_grid import get_maps_free_tier_status
 
 settings = get_settings()
 
@@ -51,7 +52,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/api/v1/health", tags=["0. System & GCP Environment"])
 def health_check() -> Dict[str, Any]:
-    """Cloud Run readiness/liveness probe and active GCP environment summary (never exposes secrets)."""
+    """Cloud Run readiness/liveness probe, active GCP environment, and Free-Tier hard cap status."""
     store = get_store()
     return {
         "status": "healthy",
@@ -67,6 +68,7 @@ def health_check() -> Dict[str, Any]:
         "sqlite_used": False,
         "resident_account_required": settings.RESIDENT_ACCOUNT_REQUIRED,
         "resident_billing_enabled": settings.RESIDENT_BILLING_ENABLED,
+        "maps_free_tier_guardrail": get_maps_free_tier_status(),
     }
 
 
@@ -81,6 +83,7 @@ def get_public_browser_config() -> Dict[str, Any]:
         "w3w_live_api_configured": bool(settings.w3w_api_key),
         "resident_account_required": False,
         "resident_billing_enabled": False,
+        "maps_free_tier_guardrail": get_maps_free_tier_status(),
         "available_vendors": [v.model_dump() for v in store.list_vendors()],
     }
 
