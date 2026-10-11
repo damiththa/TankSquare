@@ -23,7 +23,7 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
       - name: Run Pytest Suite
-        run: pytest -v
+        run: python -m pytest -v
 
   deploy-dev:
     name: Deploy to GCP Cloud Run (DEV - tanksquare-api-dev)

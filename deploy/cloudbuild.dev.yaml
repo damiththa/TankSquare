@@ -1,17 +1,17 @@
 # Google Cloud Build - TankSquare DEV Environment (`dev` branch)
-# Secrets are referenced from Google Cloud Secret Manager via `--set-secrets` (never hardcoded).
+# Uses `:latest` tag so Artifact Registry overwrites in-place and stays under the 500 MB Free Tier.
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:${_TAG}'
       - '.'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:${_TAG}'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -19,7 +19,7 @@ steps:
       - 'run'
       - 'deploy'
       - 'tanksquare-api-dev'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:${_TAG}'
       - '--region=${_REGION}'
       - '--platform=managed'
       - '--allow-unauthenticated'
@@ -30,6 +30,7 @@ steps:
 
 substitutions:
   _REGION: us-central1
+  _TAG: latest
 
 images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/tanksquare/api-dev:${_TAG}'

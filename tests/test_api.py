@@ -10,8 +10,14 @@ Verifies:
 5. On-demand `what3words` 3-word resolution (`/api/v1/w3w`).
 """
 
-from fastapi.testclient import TestClient
-from app.main import app
+import sys
+from pathlib import Path
+
+# Ensure repository root is on sys.path for both `pytest` and `python -m pytest`
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from fastapi.testclient import TestClient  # noqa: E402
+from app.main import app  # noqa: E402
 
 client = TestClient(app)
 
@@ -49,7 +55,7 @@ def test_multi_vendor_isolation_and_zero_login_session() -> None:
     assert sess["vendor_id"] == "gmp_vt"
     assert sess["resident_account_required"] is False
     assert sess["resident_billing_enabled"] is False
-    assert "data-vendor=\"gmp_vt\"" in sess["widget_embed_snippet"]
+    assert 'data-vendor="gmp_vt"' in sess["widget_embed_snippet"]
 
     # Ensure strict tenant isolation: gmp_vt sites never leak into aho_ny
     gmp_sites = client.get("/api/v1/vendors/gmp_vt/sites").json()
