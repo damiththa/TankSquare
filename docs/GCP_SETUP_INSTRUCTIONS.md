@@ -1,30 +1,78 @@
-# TankSquare — Single-Project GCP Setup, Map Provider Analysis & Secret Manager Guide
+# TankSquare — Local Mac Terminal GCP Setup, Map Provider Analysis & Secret Manager Guide
 
-> **Architecture Decision:** TankSquare uses a **Single Google Cloud Project** to cleanly isolate **`DEV` (`dev` branch)** and **`PROD` (`main` branch)** while maximizing your **Google AI Pro ($10/mo GCP credit)** and **GCP / Google Maps Free Tiers**.
-
----
-
-## 1. How Single-Project `DEV` vs. `PROD` Isolation Works in GCP
-
-Inside your single GCP Project (`YOUR_GCP_PROJECT_ID`), `DEV` and `PROD` never collide:
-
-| Layer | `DEV` Environment (`dev` Git branch) | `PROD` Environment (`main` Git branch) |
-| :--- | :--- | :--- |
-| **Cloud Run Service** | `tanksquare-api-dev` | `tanksquare-api-prod` |
-| **Firestore Collections** | `dev_vendors`, `dev_sessions`, `dev_site_passes`, `dev_webhook_logs` | `prod_vendors`, `prod_sessions`, `prod_site_passes`, `prod_webhook_logs` |
-| **Cloud Storage Paths** | `gs://YOUR_GCP_PROJECT_ID-media/dev/...` | `gs://YOUR_GCP_PROJECT_ID-media/prod/...` |
-| **Secret Manager Keys** | `tanksquare-google-maps-api-key`, `tanksquare-w3w-api-key`, `tanksquare-session-signing-secret`, `tanksquare-vendor-api-secret` | Same Secret Manager names (or `-prod` suffixed when rotating production keys) |
-| **Demo Data Seeding** | `SEED_DEMO_DATA=true` (3 demo fuel dealers) | `SEED_DEMO_DATA=false` (strictly live B2B tenants) |
+> **Architecture Decision:** TankSquare uses a **Single Google Cloud Project** to cleanly isolate **`DEV` (`dev` branch)** and **`PROD` (`main` branch)** while maximizing your **Google AI Pro ($10/mo GCP credit)** and **GCP / Google Maps Free Tiers**. Everything can be provisioned and managed **directly from your local Mac terminal**.
 
 ---
 
-## 2. Google AI Pro Plan & Map Provider Comparison (2026)
+## 1. Permissions & Workspace Setup for Local Mac Terminal
 
-### Does Google AI Pro Include GCP & Google Maps Credits?
-- **GCP Compute / Storage / AI Credits:** **Yes.** Linking your **Google AI Pro** subscription to the [Google Developer Program](https://developers.google.com/program) provides **$10/month in Google Cloud credits** (which roll over for up to 12 months). Combined with the GCP Free Tier (2M Cloud Run requests/mo + 1 GiB Firestore + 50k reads/day + 5 GB Cloud Storage), your backend infrastructure cost for `DEV` + `PROD` in Stage 1 is **$0/month**.
-- **Google Maps Platform Free Tier (Post-March 2025 Model):** While Google AI Pro's $10 credit is for GCP/AI Studio, Google Maps Platform automatically gives every billing account **10,000 free calls/month per Essentials SKU** (10,000 free Rooftop Geocodes/mo + 10,000 free Dynamic Map loads/mo + 10,000 free Static Map loads/mo).
+1. **Antigravity Workspace Permission (Recommended):**
+   - In Antigravity, open [`/Users/madushan/GitStuff/TankSquare`](file:///Users/madushan/GitStuff/TankSquare) as your **Active Workspace** (`File -> Open Folder...`).
+   - Once set as your active workspace, Antigravity can run commands and tests inside `/Users/madushan/GitStuff/TankSquare` natively without prompting you for external folder permissions on every step.
+2. **GCP IAM Permissions (On Your Google Account):**
+   - Your personal Google account is the **Project Owner (`roles/owner`)** on your GCP project.
+   - By running `gcloud auth login` and `gcloud auth application-default login` in your local Mac terminal, your Mac receives an OAuth token stored in `~/.config/gcloud/application_default_credentials.json`.
+   - **Why this is cleaner & safer:** You **never** need to download or store a service-account `.json` key file on your Mac! Both [`app/services/gcp_store.py`](../app/services/gcp_store.py) and [`app/services/secret_manager.py`](../app/services/secret_manager.py) automatically use your local Application Default Credentials (`google.auth.default()`) to talk directly to Cloud Firestore, Cloud Storage, and Secret Manager.
 
-### Head-to-Head Comparison: Google Maps vs. Esri/USGS vs. Mapbox vs. HERE vs. OpenStreetMap
+---
+
+## 2. Step-by-Step Local Mac Terminal Setup
+
+### Step 1: Install the `gcloud` CLI on Your Mac (One-Time)
+We checked your Mac's `/usr/local/bin` and noticed `gcloud` isn't installed yet. Run the official Google Cloud SDK macOS installer in your local terminal (`zsh`):
+```bash
+curl https://sdk.cloud.google.com | bash
+exec -l $SHELL
+```
+
+### Step 2: Authenticate Your Local Mac Terminal with GCP
+Run these two commands in your Mac terminal (each will pop open a browser tab for you to sign in with your Google account):
+```bash
+# 1. Authenticate the gcloud CLI for project & Cloud Run commands
+gcloud auth login
+
+# 2. Authenticate Python Application Default Credentials (so FastAPI talks directly to Firestore & Secret Manager)
+gcloud auth application-default login
+```
+
+### Step 3: Run Our Interactive Local Setup Script (`scripts/setup_gcp_local.py`)
+Instead of typing long `gcloud` commands or pasting keys where they get saved in your `.zsh_history`, run our interactive Python provisioning script from `/Users/madushan/GitStuff/TankSquare`:
+```bash
+cd /Users/madushan/GitStuff/TankSquare
+python3 scripts/setup_gcp_local.py
+```
+
+**What [`scripts/setup_gcp_local.py`](../scripts/setup_gcp_local.py) does automatically from your Mac terminal:**
+1. Prompts for your single **`GCP_PROJECT_ID`**.
+2. Uses hidden terminal prompts (`getpass`) so you can paste your **`GOOGLE_MAPS_API_KEY`** and **`W3W_API_KEY`** invisibly without them ever appearing on screen or in `.zsh_history`.
+3. Auto-generates cryptographically random 32-byte secrets for `SESSION_SIGNING_SECRET` and `VENDOR_API_SHARED_SECRET`.
+4. Enables all required GCP APIs (`run`, `firestore`, `storage`, `secretmanager`, `cloudbuild`, `artifactregistry`, `maps-backend`, `geocoding-backend`).
+5. Uploads all 4 secrets directly into **Google Cloud Secret Manager**:
+   - `tanksquare-google-maps-api-key`
+   - `tanksquare-w3w-api-key`
+   - `tanksquare-session-signing-secret`
+   - `tanksquare-vendor-api-secret`
+6. Binds `roles/secretmanager.secretAccessor` to your Cloud Run runtime service account.
+7. Creates your Native **Cloud Firestore** database (`nam5`) and **Cloud Storage** media bucket (`gs://<PROJECT_ID>-media`).
+8. Writes a **secret-free `.env` pointer file** (`USE_GCP_SECRET_MANAGER=true`, `GCP_PROJECT_ID=...`) that is ignored by Git so your local terminal runs pull secrets live from GCP Secret Manager.
+
+---
+
+## 3. Deploying `DEV` and `PROD` from Your Local Mac Terminal
+
+Once [`scripts/setup_gcp_local.py`](../scripts/setup_gcp_local.py) finishes, you can deploy either environment to **Google Cloud Run** right from your Mac terminal:
+
+```bash
+# Deploy DEV (`dev` branch -> Cloud Run service `tanksquare-api-dev`, Firestore `dev_*`)
+gcloud builds submit --config deploy/cloudbuild.dev.yaml
+
+# Deploy PROD (`main` branch -> Cloud Run service `tanksquare-api-prod`, Firestore `prod_*`)
+gcloud builds submit --config deploy/cloudbuild.prod.yaml
+```
+
+---
+
+## 4. Reference: Google AI Pro Plan & Map Provider Comparison (2026)
 
 | Provider | Rural US Rooftop Accuracy | Rural Aerial Clarity (Zoom 19–21) | Monthly Free Tier (2026) | Cost After Free Tier | Verdict for TankSquare |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -33,86 +81,3 @@ Inside your single GCP Project (`YOUR_GCP_PROJECT_ID`), `DEV` and `PROD` never c
 | **3. Mapbox** | **#3 (85–90%)** — Often falls back to street-interpolation on long rural driveways. | **#3 (30–50cm)** — Maxar satellite; can blur at Zoom 20+ in rural counties. | **50,000 free map loads/mo** + **100,000 free geocodes/mo**. | $5.00/1k map loads; $0.75–$5.00/1k geocodes. | Good developer SDK, but weaker rural US rooftop precision than Google. |
 | **4. HERE Technologies** | **#3 (88–92%)** — Strong road network, weaker backyard/rooftop pin placement. | **#4** — Built for road navigation, not backyard tank inspection. | **30,000 free map loads/mo** + **250,000 free geocodes/mo**. | $1.00/1k geocodes after 250k. | Best saved for future **CDL Hazmat Truck Routing** (bridge weights/tunnels). |
 | **5. OpenStreetMap (Nominatim)** | **Poor in Rural US (~60–75%)** — Missing rural house numbers; drops pin on road center. | **None built-in** (vector streets only; requires external aerial tiles). | **100% Free** | $0 | Too inaccurate for rural US residential addresses on its own. |
-
----
-
-## 3. Step-by-Step Instructions: Adding Keys to Google Cloud Secret Manager
-
-You can run these commands directly in **[Google Cloud Shell](https://shell.cloud.google.com/)** (top-right `>_` icon in your Google Cloud Console) or your Mac terminal. **You never need to paste your raw API keys into chat or commit them to Git.**
-
-### Step 1: Set Your Single GCP Project ID & Enable APIs
-Replace `YOUR_GCP_PROJECT_ID` with your actual Project ID from the Google Cloud Console:
-```bash
-export PROJECT_ID="YOUR_GCP_PROJECT_ID"
-gcloud config set project $PROJECT_ID
-
-gcloud services enable \
-  run.googleapis.com \
-  firestore.googleapis.com \
-  storage.googleapis.com \
-  secretmanager.googleapis.com \
-  cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com \
-  maps-backend.googleapis.com \
-  geocoding-backend.googleapis.com
-```
-
-### Step 2: Create Your Google Maps API Key (In GCP Console or CLI)
-1. In the Google Cloud Console, go to **APIs & Services $\rightarrow$ Credentials** (or **Google Maps Platform $\rightarrow$ Keys & Credentials**).
-2. Click **"+ Create Credentials" $\rightarrow$ "API key"** and copy the generated key.
-3. *(Recommended Security)* Restrict the key to **Maps JavaScript API**, **Maps Static API**, and **Geocoding API**.
-
-### Step 3: Store All 4 Secrets in Google Cloud Secret Manager
-Run these 4 commands in Cloud Shell (replacing `PASTE_YOUR_GOOGLE_MAPS_KEY_HERE` and `PASTE_YOUR_W3W_KEY_HERE`—or leave `PLACEHOLDER` if you want to add the W3W key later):
-
-```bash
-# 1. Store Google Maps Platform API Key
-printf "PASTE_YOUR_GOOGLE_MAPS_KEY_HERE" | \
-  gcloud secrets create tanksquare-google-maps-api-key \
-  --replication-policy="automatic" \
-  --data-file=-
-
-# 2. Store what3words API Key (or placeholder until ready)
-printf "PASTE_YOUR_W3W_KEY_HERE" | \
-  gcloud secrets create tanksquare-w3w-api-key \
-  --replication-policy="automatic" \
-  --data-file=-
-
-# 3. Auto-generate & store 32-byte Resident Zero-Login Session Signing Secret
-python3 -c "import secrets; print(secrets.token_urlsafe(32), end='')" | \
-  gcloud secrets create tanksquare-session-signing-secret \
-  --replication-policy="automatic" \
-  --data-file=-
-
-# 4. Auto-generate & store 32-byte B2B Vendor API Shared Secret
-python3 -c "import secrets; print(secrets.token_urlsafe(32), end='')" | \
-  gcloud secrets create tanksquare-vendor-api-secret \
-  --replication-policy="automatic" \
-  --data-file=-
-```
-
-*(Note: If you ever rotate or update a key later, just run:)*
-```bash
-printf "NEW_KEY_VALUE" | gcloud secrets versions add tanksquare-google-maps-api-key --data-file=-
-```
-
-### Step 4: Grant Cloud Run Permission to Read Your Secrets
-Run this block so your Cloud Run service account can mount those secrets at runtime:
-```bash
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
-```
-
-### Step 5: Create Firestore Database & Media Bucket (One-Time per Project)
-```bash
-# Create Native Firestore Database (shared by dev_* and prod_* collections)
-gcloud firestore databases create --location=nam5 --type=firestore-native
-
-# Create GCS Bucket for Tank/Driveway Photos (shared by dev/ and prod/ folders)
-gcloud storage buckets create gs://${PROJECT_ID}-media \
-  --location=us-central1 \
-  --uniform-bucket-level-access
-```
