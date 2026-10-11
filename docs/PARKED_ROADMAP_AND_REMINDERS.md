@@ -10,7 +10,7 @@
 - [x] **100% Browser-Based (Zero App Install):** Both the Resident Portal (`/`) and the Tanker Driver Mobile View (`/driver`) run in standard mobile and desktop browsers (Safari, Chrome, Edge) with zero app store downloads or desktop software installs.
 - [x] **Zero Separate Account for Residents:** Residents never sign up for or log into a TankSquare account (`resident_account_required = False`). Identity is passed via a pre-authenticated session token in the propane vendor's `<script>` tag (`widget.js`) or SMS/email magic link.
 - [x] **100% Free for Residents:** Residents are never billed or shown payment screens (`resident_billing_enabled = False`). TankSquare is strictly B2B vendor-paid.
-- [x] **Single-Project Cloud-Direct GCP Isolation (Zero SQLite):** Both `DEV` (`dev` branch $\rightarrow$ `tanksquare-api-dev`, `dev_*` Firestore collections, `dev/` GCS prefix) and `PROD` (`main` branch $\rightarrow$ `tanksquare-api-prod`, `prod_*` Firestore collections, `prod/` GCS prefix) run isolated inside a single GCP project to maximize the **Google AI Pro ($10/mo GCP credit)** and **GCP Free Tier**.
+- [x] **Single-Project Cloud-Direct GCP Isolation via Cloud Shell (Zero SQLite):** Both `DEV` (`dev` branch $\rightarrow$ `tanksquare-api-dev`, `dev_*` Firestore collections, `dev/` GCS prefix) and `PROD` (`main` branch $\rightarrow$ `tanksquare-api-prod`, `prod_*` Firestore collections, `prod/` GCS prefix) run isolated inside a single GCP project managed via **Google Cloud Shell** to maximize the **Google AI Pro ($10/mo GCP credit)** and **GCP Free Tier**.
 - [x] **Zero Hardcoded Secrets:** All sensitive keys (`GOOGLE_MAPS_API_KEY`, `W3W_API_KEY`, `SESSION_SIGNING_SECRET`, `VENDOR_API_SHARED_SECRET`) live in **Google Cloud Secret Manager** and are referenced dynamically via [`app/services/secret_manager.py`](../app/services/secret_manager.py) or Cloud Run `--set-secrets`.
 - [x] **Map & Geocoding Strategy:** Evaluated **Google Maps Platform** vs. **Esri ArcGIS/USGS NAIP** vs. **Mapbox** vs. **HERE** vs. **OpenStreetMap** (documented in [`docs/GCP_SETUP_INSTRUCTIONS.md`](./GCP_SETUP_INSTRUCTIONS.md)). Selected **Google Maps Platform** as primary for #1 rural US rooftop geocoding accuracy + 15cm leaf-off aerials (10,000 free calls/mo per SKU), with optional **Esri/USGS NAIP** aerial tile fallback for high-volume scale.
 
@@ -18,9 +18,9 @@
 
 ## 2. Active Parked Reminder List (To Review & Refine Next)
 
-### Item 1: GCP Secret Manager Setup & Pushing `dev` / `main` to GitHub
-- **Status:** 🟡 Instructions ready in [`docs/GCP_SETUP_INSTRUCTIONS.md`](./GCP_SETUP_INSTRUCTIONS.md).
-- **Next Step:** Add the 4 secrets in Google Cloud Secret Manager and push `dev` and `main` branches to `https://github.com/damiththa/TankSquare.git`.
+### Item 1: GCP Cloud Shell Secret Manager Setup & Pushing `dev` / `main` to GitHub
+- **Status:** 🟡 Cloud Shell instructions & [`scripts/setup_gcp_cloudshell.sh`](../scripts/setup_gcp_cloudshell.sh) ready in [`docs/GCP_SETUP_INSTRUCTIONS.md`](./GCP_SETUP_INSTRUCTIONS.md).
+- **Next Step:** Push `dev` and `main` branches to `https://github.com/damiththa/TankSquare.git` and run the Cloud Shell setup.
 
 ### Item 2: Approach 2 — Mobile-Browser Tanker Driver View (`/driver`) & Workflow Refinements
 - **Status:** 🟡 Initial browser view & API built ([`app/static/driver.html`](../app/static/driver.html), [`app/routers/driver.py`](../app/routers/driver.py)); ready for UX review.
