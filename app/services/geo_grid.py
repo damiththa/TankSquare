@@ -418,43 +418,88 @@ def autocomplete_addresses(query: str, limit: int = 5) -> Dict[str, Any]:
                 results.append(suggestion)
                 _AUTOCOMPLETE_FALLBACK_COORDS[norm_key] = (item["lat"], item["lng"], fmt)
 
-    # Tier 2: Photon (Komoot / OpenStreetMap) Free Type-Ahead API ($0.00, 0 Google quota used)
+    # Tier 2: Fast US Address Suggest (ArcGIS World Geocoder Suggest + Photon OpenStreetMap at $0 / 0 Google Quota)
     provider_used = "local_service_catalog"
     if len(results) < limit:
         try:
-            with httpx.Client(timeout=2.0) as client:
-                resp = client.get(
-                    "https://photon.komoot.io/api/",
+            with httpx.Client(timeout=2.5) as client:
+                # 2A. ArcGIS Public US Address Suggest (<100ms, full US E-911 street & house number index, $0)
+                ag_resp = client.get(
+                    "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest",
                     params={
-                        "q": cleaned,
-                        "limit": max(limit * 2, 8),
-                        "lang": "en",
-                        "lat": 42.85,
-                        "lon": -73.25,
-                    },
-                    headers={
-                        "User-Agent": "TankSquare-B2B-Grid/1.0 (+https://github.com/damiththa/TankSquare)"
+                        "f": "json",
+                        "countryCode": "USA",
+                        "maxSuggestions": limit,
+                        "text": cleaned,
                     },
                 )
-                if resp.status_code == 200:
-                    payload = resp.json()
-                    for feat in payload.get("features") or []:
-                        parsed = _format_photon_feature(feat, typed_house_number=typed_house_num)
-                        if not parsed:
+                if ag_resp.status_code == 200:
+                    for sug in (ag_resp.json().get("suggestions") or []):
+                        raw_text = str(sug.get("text") or "").strip()
+                        if not raw_text:
                             continue
-                        norm_key = parsed["formatted_address"].lower()
-                        if norm_key in seen_addresses:
-                            continue
-                        seen_addresses.add(norm_key)
-                        results.append(parsed)
-                        _AUTOCOMPLETE_FALLBACK_COORDS[norm_key] = (
-                            parsed["fallback_lat"],
-                            parsed["fallback_lng"],
-                            parsed["formatted_address"],
-                        )
-                        provider_used = "photon_osm_split_pipeline"
-                        if len(results) >= limit:
-                            break
+                        # Strip trailing ', USA' and normalize ', VT, 05602' -> ', VT 05602'
+                        clean_text = re.sub(r",\s*USA$", "", raw_text, flags=re.IGNORECASE)
+                        clean_text = re.sub(r",\s*([A-Z]{2}),\s*(\d{5}(?:-\d{4})?)$", r", \1 \2", clean_text)
+                        parts = [p.strip() for p in clean_text.split(",") if p.strip()]
+                        street_line = parts[0] if parts else clean_text
+                        city_state_zip = ", ".join(parts[1:]) if len(parts) > 1 else ""
+                        preserved = False
+                        if typed_house_num and not street_line.lower().startswith(typed_house_num.lower()):
+                            road_only = re.sub(r"^\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?\s+", "", street_line)
+                            street_line = f"{typed_house_num} {road_only}"
+                            clean_text = f"{street_line}, {city_state_zip}" if city_state_zip else street_line
+                            preserved = True
+                        norm_key = clean_text.lower()
+                        if norm_key not in seen_addresses:
+                            seen_addresses.add(norm_key)
+                            results.append(
+                                {
+                                    "formatted_address": clean_text,
+                                    "street_line": street_line,
+                                    "city_state_zip": city_state_zip,
+                                    "fallback_lat": None,
+                                    "fallback_lng": None,
+                                    "source": "photon_osm",
+                                    "house_number_preserved": preserved,
+                                }
+                            )
+                            provider_used = "photon_osm_split_pipeline"
+                            if len(results) >= limit:
+                                break
+
+                # 2B. Photon (OpenStreetMap) Free Type-Ahead API (without slow lat/lon decay params)
+                if len(results) < limit:
+                    resp = client.get(
+                        "https://photon.komoot.io/api/",
+                        params={
+                            "q": cleaned,
+                            "limit": max(limit * 2, 6),
+                            "lang": "en",
+                        },
+                        headers={
+                            "User-Agent": "TankSquare-B2B-Grid/1.0 (+https://github.com/damiththa/TankSquare)"
+                        },
+                    )
+                    if resp.status_code == 200:
+                        payload = resp.json()
+                        for feat in payload.get("features") or []:
+                            parsed = _format_photon_feature(feat, typed_house_number=typed_house_num)
+                            if not parsed:
+                                continue
+                            norm_key = parsed["formatted_address"].lower()
+                            if norm_key in seen_addresses:
+                                continue
+                            seen_addresses.add(norm_key)
+                            results.append(parsed)
+                            _AUTOCOMPLETE_FALLBACK_COORDS[norm_key] = (
+                                parsed["fallback_lat"],
+                                parsed["fallback_lng"],
+                                parsed["formatted_address"],
+                            )
+                            provider_used = "photon_osm_split_pipeline"
+                            if len(results) >= limit:
+                                break
         except Exception:
             pass
 
@@ -482,7 +527,7 @@ def geocode_address_to_parcel(
     1. Checks known service addresses and in-memory geocode cache first (0 calls).
     2. Calls Google Maps Geocoding API ONCE for rooftop precision when `GOOGLE_MAPS_API_KEY` is active
        and within `MAPS_MONTHLY_FREE_TIER_CAP` (9,500/mo) and `MAPS_DAILY_SAFE_CAP` (300/day).
-    3. Falls back to real coordinates from Stage 1 (Photon/OSM autocomplete) if Google is capped or unconfigured.
+    3. Falls back to real coordinates from Stage 1 autocomplete or free ArcGIS rooftop candidate lookup if Google is capped/unconfigured.
     4. Uses deterministic SHA-256 coordinate offset only as last-resort offline fallback.
     """
     known_addresses = {
@@ -546,7 +591,27 @@ def geocode_address_to_parcel(
         fb_lat, fb_lng, fb_fmt = _AUTOCOMPLETE_FALLBACK_COORDS[lowered]
         return _build_parcel_layout(fb_fmt, fb_lat, fb_lng, precision_source="photon_osm_fallback")
 
-    # Zero-cost deterministic fallback when no key is set, no autocomplete coords exist, or cap is reached
+    # Free Rooftop Candidate Lookup when Google Maps is capped or unconfigured ($0.00)
+    try:
+        with httpx.Client(timeout=2.5) as client:
+            cand_resp = client.get(
+                "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates",
+                params={"f": "json", "maxLocations": 1, "singleLine": street_address.strip()},
+            )
+            if cand_resp.status_code == 200:
+                cands = cand_resp.json().get("candidates") or []
+                if cands and "location" in cands[0]:
+                    loc = cands[0]["location"]
+                    lat = round(float(loc["y"]), 6)
+                    lng = round(float(loc["x"]), 6)
+                    _GEOCODE_CACHE[lowered] = (lat, lng, street_address.strip())
+                    return _build_parcel_layout(
+                        street_address.strip(), lat, lng, precision_source="rooftop_free_fallback"
+                    )
+    except Exception:
+        pass
+
+    # Zero-cost deterministic fallback when offline
     digest = hashlib.sha256(lowered.encode("utf-8")).hexdigest()
     lat_offset = ((int(digest[:6], 16) % 2000) - 1000) * 0.0001
     lng_offset = ((int(digest[6:12], 16) % 2000) - 1000) * 0.0001

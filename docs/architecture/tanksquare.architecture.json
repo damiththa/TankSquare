@@ -12,7 +12,7 @@
       "url": "https://github.com/damiththa/TankSquare",
       "provider": "github",
       "link_mode": "web",
-      "revision": "48005b5194e21aaf253d5e5a3d53fad653f70710"
+      "revision": "2c8038237c8248a16e7216ccda953a9d2605bce7"
     },
     "views": [
       {
@@ -118,7 +118,7 @@
       "pos": [620, 95],
       "size": [168, 68],
       "sources": [
-        { "path": "app/services/geo_grid.py", "line": 1, "end_line": 582, "label": "Split autocomplete, 3m grid & 9.5k cap" },
+        { "path": "app/services/geo_grid.py", "line": 1, "end_line": 647, "label": "Split autocomplete, 3m grid & 9.5k cap" },
         { "path": "app/services/w3w_service.py", "line": 1, "end_line": 107, "label": "what3words v3 & 402 fallback" }
       ]
     },
