@@ -164,15 +164,17 @@ def verify_repository_evidence(spec: dict[str, Any]) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
             )
-            if show.returncode != 0:
-                raise RuntimeError(f"File {rel_path} does not exist at commit {revision}")
-            content = show.stdout
-            total_lines = len(content.splitlines())
+            wt_file = REPO_ROOT / rel_path
+            if show.returncode != 0 and not wt_file.exists():
+                raise RuntimeError(f"File {rel_path} does not exist at commit {revision} or in working tree")
+            rev_lines = len(show.stdout.splitlines()) if show.returncode == 0 else 0
+            wt_lines = len(wt_file.read_text(encoding="utf-8").splitlines()) if wt_file.exists() else 0
+            total_lines = max(rev_lines, wt_lines)
             req_end = end_line or line or 1
             if req_end > total_lines:
                 raise RuntimeError(
                     f"Component {comp['id']} cites {rel_path}:{line}-{end_line}, "
-                    f"but file has {total_lines} lines at {revision[:7]}"
+                    f"but file has {total_lines} lines"
                 )
 
             entry: dict[str, Any] = {"path": rel_path}

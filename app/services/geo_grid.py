@@ -28,14 +28,77 @@ GRID_COLS = 25
 CENTER_ROW = 8
 CENTER_COL = 12
 
+import re
+
 # In-memory cache & Free-Tier Guardrail Counter ( prevents Pay-As-You-Go overages )
 _GEOCODE_CACHE: Dict[str, Tuple[float, float, str]] = {}
+_AUTOCOMPLETE_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+_AUTOCOMPLETE_FALLBACK_COORDS: Dict[str, Tuple[float, float, str]] = {}
 _USAGE_TRACKER: Dict[str, int] = {
     "month_key": int(datetime.utcnow().strftime("%Y%m")),
     "day_key": int(datetime.utcnow().strftime("%Y%m%d")),
     "monthly_calls": 0,
     "daily_calls": 0,
 }
+
+US_STATE_ABBREV: Dict[str, str] = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
+    "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
+    "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+    "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
+    "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD",
+    "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA",
+    "washington": "WA", "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+}
+
+KNOWN_SERVICE_ADDRESSES: List[Dict[str, Any]] = [
+    {
+        "formatted_address": "742 Evergreen Terrace, Montpelier, VT 05602",
+        "street_line": "742 Evergreen Terrace",
+        "city_state_zip": "Montpelier, VT 05602",
+        "lat": 44.2601,
+        "lng": -72.5754,
+    },
+    {
+        "formatted_address": "184 Old County Rd, Lake Placid, NY 12946",
+        "street_line": "184 Old County Rd",
+        "city_state_zip": "Lake Placid, NY 12946",
+        "lat": 43.9742,
+        "lng": -73.9211,
+    },
+    {
+        "formatted_address": "905 Maple Ridge Ln, Iowa City, IA 52240",
+        "street_line": "905 Maple Ridge Ln",
+        "city_state_zip": "Iowa City, IA 52240",
+        "lat": 41.6611,
+        "lng": -91.5302,
+    },
+    {
+        "formatted_address": "120 Mountain View Rd, Stowe, VT 05672",
+        "street_line": "120 Mountain View Rd",
+        "city_state_zip": "Stowe, VT 05672",
+        "lat": 44.4654,
+        "lng": -72.6874,
+    },
+    {
+        "formatted_address": "412B Bear Swamp Rd, Middlesex, VT 05602",
+        "street_line": "412B Bear Swamp Rd",
+        "city_state_zip": "Middlesex, VT 05602",
+        "lat": 44.3108,
+        "lng": -72.6682,
+    },
+    {
+        "formatted_address": "88 Adirondack Loj Rd, Lake Placid, NY 12946",
+        "street_line": "88 Adirondack Loj Rd",
+        "city_state_zip": "Lake Placid, NY 12946",
+        "lat": 44.2268,
+        "lng": -73.9631,
+    },
+]
 
 
 def get_maps_free_tier_status() -> Dict[str, Any]:
@@ -217,11 +280,210 @@ def calculate_hose_reach(
     )
 
 
-def geocode_address_to_parcel(street_address: str) -> Dict[str, Any]:
+def extract_leading_house_number(query: str) -> Optional[str]:
     """
-    Resolve a street address into parcel coordinates and a visual property footprint.
-    Enforces `MAPS_MONTHLY_FREE_TIER_CAP` (9,500/mo) and `MAPS_DAILY_SAFE_CAP` (300/day)
-    so TankSquare NEVER exceeds Google Maps' 10,000/month free tier or triggers Pay-As-You-Go billing.
+    Extract a leading rural E-911 or street house number (e.g., '742', '412B', '184-A')
+    from the user's raw search input so road-level OpenStreetMap matches preserve the exact house number
+    when forwarded to Google Maps Rooftop Geocoding.
+    """
+    match = re.match(r"^\s*(\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?)\s+[A-Za-z]", query or "")
+    if match:
+        return match.group(1)
+    return None
+
+
+def _format_photon_feature(
+    feature: Dict[str, Any],
+    typed_house_number: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Normalize a Photon (OpenStreetMap) GeoJSON feature into clean USPS street address format."""
+    props = feature.get("properties") or {}
+    geom = feature.get("geometry") or {}
+    coords = geom.get("coordinates") or []
+    if len(coords) < 2:
+        return None
+
+    country_code = str(props.get("countrycode") or "").upper()
+    country_name = str(props.get("country") or "").lower()
+    if country_code and country_code != "US" and "united states" not in country_name:
+        return None
+
+    house_number = str(props.get("housenumber") or "").strip()
+    street = str(props.get("street") or props.get("name") or "").strip()
+    city = str(
+        props.get("city")
+        or props.get("town")
+        or props.get("village")
+        or props.get("locality")
+        or props.get("county")
+        or ""
+    ).strip()
+    raw_state = str(props.get("state") or "").strip()
+    state_abbr = US_STATE_ABBREV.get(raw_state.lower(), raw_state[:2].upper() if len(raw_state) == 2 else raw_state)
+    postcode = str(props.get("postcode") or "").strip()
+
+    if not street:
+        return None
+
+    house_number_preserved = False
+    if not house_number and typed_house_number:
+        house_number = typed_house_number
+        house_number_preserved = True
+
+    street_line = f"{house_number} {street}".strip() if house_number else street
+    locality_parts: List[str] = []
+    if city:
+        locality_parts.append(city)
+    state_zip = f"{state_abbr} {postcode}".strip()
+    if state_zip:
+        locality_parts.append(state_zip)
+
+    city_state_zip = ", ".join(locality_parts)
+    formatted_address = f"{street_line}, {city_state_zip}" if city_state_zip else street_line
+
+    lng = round(float(coords[0]), 6)
+    lat = round(float(coords[1]), 6)
+    return {
+        "formatted_address": formatted_address,
+        "street_line": street_line,
+        "city_state_zip": city_state_zip,
+        "fallback_lat": lat,
+        "fallback_lng": lng,
+        "source": "photon_osm",
+        "house_number_preserved": house_number_preserved,
+    }
+
+
+def autocomplete_addresses(query: str, limit: int = 5) -> Dict[str, Any]:
+    """
+    Split-Provider Stage 1: Zero-cost type-ahead address suggestions.
+    - Uses 0 Google Maps API quota calls during keystroke typing.
+    - Combines instant local service-territory matches with Photon (OpenStreetMap) type-ahead.
+    - Preserves leading rural house numbers (e.g., '412B') when OSM only knows the road name,
+      so Stage 2 (Google Maps Geocoding) resolves the exact rooftop parcel.
+    """
+    cleaned = (query or "").strip()
+    if len(cleaned) < 3:
+        return {
+            "query": cleaned,
+            "provider": "none_min_3_chars",
+            "google_quota_used": 0,
+            "cost_usd": 0.0,
+            "suggestions": [],
+        }
+
+    cache_key = f"{cleaned.lower()}::{limit}"
+    if cache_key in _AUTOCOMPLETE_CACHE:
+        return {
+            "query": cleaned,
+            "provider": "memory_prefix_cache",
+            "google_quota_used": 0,
+            "cost_usd": 0.0,
+            "suggestions": _AUTOCOMPLETE_CACHE[cache_key],
+        }
+
+    typed_house_num = extract_leading_house_number(cleaned)
+    lowered = cleaned.lower()
+    tokens = [t for t in re.split(r"[\s,]+", lowered) if t]
+    non_numeric_tokens = [t for t in tokens if not t[0].isdigit()]
+
+    results: List[Dict[str, Any]] = []
+    seen_addresses: set[str] = set()
+
+    # Tier 1: Local Service-Territory Catalog (0ms, $0.00, supports house-number prefix replacement)
+    for item in KNOWN_SERVICE_ADDRESSES:
+        haystack = item["formatted_address"].lower()
+        if lowered in haystack or (non_numeric_tokens and all(t in haystack for t in non_numeric_tokens)):
+            fmt = item["formatted_address"]
+            street_line = item["street_line"]
+            preserved = False
+            if typed_house_num and not haystack.startswith(typed_house_num.lower()):
+                road_only = re.sub(r"^\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?\s+", "", street_line)
+                street_line = f"{typed_house_num} {road_only}"
+                fmt = f"{street_line}, {item['city_state_zip']}"
+                preserved = True
+
+            norm_key = fmt.lower()
+            if norm_key not in seen_addresses:
+                seen_addresses.add(norm_key)
+                suggestion = {
+                    "formatted_address": fmt,
+                    "street_line": street_line,
+                    "city_state_zip": item["city_state_zip"],
+                    "fallback_lat": item["lat"],
+                    "fallback_lng": item["lng"],
+                    "source": "local_service_catalog",
+                    "house_number_preserved": preserved,
+                }
+                results.append(suggestion)
+                _AUTOCOMPLETE_FALLBACK_COORDS[norm_key] = (item["lat"], item["lng"], fmt)
+
+    # Tier 2: Photon (Komoot / OpenStreetMap) Free Type-Ahead API ($0.00, 0 Google quota used)
+    provider_used = "local_service_catalog"
+    if len(results) < limit:
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                resp = client.get(
+                    "https://photon.komoot.io/api/",
+                    params={
+                        "q": cleaned,
+                        "limit": max(limit * 2, 8),
+                        "lang": "en",
+                        "lat": 42.85,
+                        "lon": -73.25,
+                    },
+                    headers={
+                        "User-Agent": "TankSquare-B2B-Grid/1.0 (+https://github.com/damiththa/TankSquare)"
+                    },
+                )
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    for feat in payload.get("features") or []:
+                        parsed = _format_photon_feature(feat, typed_house_number=typed_house_num)
+                        if not parsed:
+                            continue
+                        norm_key = parsed["formatted_address"].lower()
+                        if norm_key in seen_addresses:
+                            continue
+                        seen_addresses.add(norm_key)
+                        results.append(parsed)
+                        _AUTOCOMPLETE_FALLBACK_COORDS[norm_key] = (
+                            parsed["fallback_lat"],
+                            parsed["fallback_lng"],
+                            parsed["formatted_address"],
+                        )
+                        provider_used = "photon_osm_split_pipeline"
+                        if len(results) >= limit:
+                            break
+        except Exception:
+            pass
+
+    final_suggestions = results[:limit]
+    if len(_AUTOCOMPLETE_CACHE) > 256:
+        _AUTOCOMPLETE_CACHE.clear()
+    _AUTOCOMPLETE_CACHE[cache_key] = final_suggestions
+
+    return {
+        "query": cleaned,
+        "provider": provider_used,
+        "google_quota_used": 0,
+        "cost_usd": 0.0,
+        "suggestions": final_suggestions,
+    }
+
+
+def geocode_address_to_parcel(
+    street_address: str,
+    fallback_lat: Optional[float] = None,
+    fallback_lng: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Split-Provider Stage 2: Resolve a selected street address into parcel coordinates and a visual property footprint.
+    1. Checks known service addresses and in-memory geocode cache first (0 calls).
+    2. Calls Google Maps Geocoding API ONCE for rooftop precision when `GOOGLE_MAPS_API_KEY` is active
+       and within `MAPS_MONTHLY_FREE_TIER_CAP` (9,500/mo) and `MAPS_DAILY_SAFE_CAP` (300/day).
+    3. Falls back to real coordinates from Stage 1 (Photon/OSM autocomplete) if Google is capped or unconfigured.
+    4. Uses deterministic SHA-256 coordinate offset only as last-resort offline fallback.
     """
     known_addresses = {
         "742 evergreen": (44.2601, -72.5754, "742 Evergreen Terrace, Montpelier, VT 05602"),
@@ -231,11 +493,11 @@ def geocode_address_to_parcel(street_address: str) -> Dict[str, Any]:
     lowered = street_address.strip().lower()
     for key, (lat, lng, formatted) in known_addresses.items():
         if key in lowered:
-            return _build_parcel_layout(formatted, lat, lng)
+            return _build_parcel_layout(formatted, lat, lng, precision_source="known_service_catalog")
 
     if lowered in _GEOCODE_CACHE:
         c_lat, c_lng, c_fmt = _GEOCODE_CACHE[lowered]
-        return _build_parcel_layout(c_fmt, c_lat, c_lng)
+        return _build_parcel_layout(c_fmt, c_lat, c_lng, precision_source="google_geocode_cache")
 
     settings = get_settings()
     _roll_counters_if_needed()
@@ -267,25 +529,44 @@ def geocode_address_to_parcel(street_address: str) -> Dict[str, Any]:
                         lng = round(float(loc["lng"]), 6)
                         fmt = top.get("formatted_address", street_address.strip())
                         _GEOCODE_CACHE[lowered] = (lat, lng, fmt)
-                        return _build_parcel_layout(fmt, lat, lng)
+                        return _build_parcel_layout(fmt, lat, lng, precision_source="google_rooftop_geocode")
         except Exception:
             pass
 
-    # Zero-cost deterministic fallback when no key is set or free-tier cap is reached
+    # Stage 1 Autocomplete Coordinate Fallback (real OpenStreetMap/Photon coordinates at $0.00)
+    if fallback_lat is not None and fallback_lng is not None:
+        return _build_parcel_layout(
+            street_address.strip(),
+            round(float(fallback_lat), 6),
+            round(float(fallback_lng), 6),
+            precision_source="photon_osm_fallback",
+        )
+
+    if lowered in _AUTOCOMPLETE_FALLBACK_COORDS:
+        fb_lat, fb_lng, fb_fmt = _AUTOCOMPLETE_FALLBACK_COORDS[lowered]
+        return _build_parcel_layout(fb_fmt, fb_lat, fb_lng, precision_source="photon_osm_fallback")
+
+    # Zero-cost deterministic fallback when no key is set, no autocomplete coords exist, or cap is reached
     digest = hashlib.sha256(lowered.encode("utf-8")).hexdigest()
     lat_offset = ((int(digest[:6], 16) % 2000) - 1000) * 0.0001
     lng_offset = ((int(digest[6:12], 16) % 2000) - 1000) * 0.0001
     lat = round(42.8500 + lat_offset, 6)
     lng = round(-73.2500 + lng_offset, 6)
-    return _build_parcel_layout(street_address.strip(), lat, lng)
+    return _build_parcel_layout(street_address.strip(), lat, lng, precision_source="deterministic_fallback")
 
 
-def _build_parcel_layout(formatted_address: str, center_lat: float, center_lng: float) -> Dict[str, Any]:
+def _build_parcel_layout(
+    formatted_address: str,
+    center_lat: float,
+    center_lng: float,
+    precision_source: str = "google_rooftop_geocode",
+) -> Dict[str, Any]:
     """Return parcel metadata and landmark cell bounds for the 25x16 3m x 3m grid."""
     return {
         "formatted_address": formatted_address,
         "parcel_center_lat": center_lat,
         "parcel_center_lng": center_lng,
+        "precision_source": precision_source,
         "grid_rows": GRID_ROWS,
         "grid_cols": GRID_COLS,
         "square_size_meters": SQUARE_SIZE_METERS,

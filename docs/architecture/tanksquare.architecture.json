@@ -12,14 +12,14 @@
       "url": "https://github.com/damiththa/TankSquare",
       "provider": "github",
       "link_mode": "web",
-      "revision": "a9d1af0984552df04a10350149c9c859146d3e60"
+      "revision": "48005b5194e21aaf253d5e5a3d53fad653f70710"
     },
     "views": [
       {
         "id": "resident-drop-pin",
-        "label": "1. Resident Drop-Pin & Hose Math",
-        "focus": ["resident_portal", "fastapi_gateway", "geo_hose_engine", "external_geo_apis", "firestore_gcs_store"],
-        "note": "Homeowner enters address with zero login, pins tank & truck squares, and computes waypoint bobtail hose reach (+15% slack)."
+        "label": "1. Resident Split-Autocomplete & Drop-Pin",
+        "focus": ["resident_portal", "fastapi_gateway", "geo_hose_engine", "photon_osm_autocomplete", "external_geo_apis", "firestore_gcs_store"],
+        "note": "Stage 1: Resident types address with $0 Photon/OSM type-ahead (0 Google quota). Stage 2: Selecting address triggers 1 Google Rooftop Geocode call + 3m×3m grid & hose math."
       },
       {
         "id": "driver-verification",
@@ -30,8 +30,8 @@
       {
         "id": "cicd-and-cost-guardrails",
         "label": "3. CI/CD & $0 Free-Tier Guardrails",
-        "focus": ["github_cicd", "secret_circuit_guard", "fastapi_gateway", "geo_hose_engine", "firestore_gcs_store"],
-        "note": "GitHub Actions auto-deploys DEV (`dev` branch) and gates PROD on manual dispatch; Secret Manager & 9,500/mo quota cap prevent billing leaks."
+        "focus": ["github_cicd", "secret_circuit_guard", "fastapi_gateway", "geo_hose_engine", "photon_osm_autocomplete", "firestore_gcs_store"],
+        "note": "GitHub Actions auto-deploys DEV (`dev` branch) and gates PROD on manual dispatch; Split-Provider autocomplete + 9,500/mo quota cap prevent billing leaks."
       }
     ]
   },
@@ -40,13 +40,13 @@
       "id": "resident_portal",
       "type": "frontend",
       "label": "Resident Grid Portal",
-      "sublabel": "Zero-login 3m×3m & widget.js",
+      "sublabel": "Type-ahead, 3m×3m & widget.js",
       "brand": "javascript",
       "tag": "browser UI",
       "pos": [40, 95],
       "size": [162, 68],
       "sources": [
-        { "path": "app/static/index.html", "line": 1, "end_line": 621, "label": "Resident 3m×3m grid portal" },
+        { "path": "app/static/index.html", "line": 1, "end_line": 764, "label": "Resident 3m×3m grid & autocomplete UI" },
         { "path": "app/static/widget.js", "line": 1, "end_line": 114, "label": "Plaid-style vendor script" }
       ]
     },
@@ -103,8 +103,8 @@
       "pos": [330, 240],
       "size": [168, 68],
       "sources": [
-        { "path": "app/main.py", "line": 1, "end_line": 100, "label": "FastAPI entrypoint & routes" },
-        { "path": "app/routers/resident.py", "line": 1, "end_line": 261, "label": "Resident parcel & pin router" },
+        { "path": "app/main.py", "line": 1, "end_line": 107, "label": "FastAPI entrypoint & /architecture" },
+        { "path": "app/routers/resident.py", "line": 1, "end_line": 279, "label": "Autocomplete, geocode & pin router" },
         { "path": "app/routers/driver.py", "line": 1, "end_line": 120, "label": "Driver dispatch & verify router" }
       ]
     },
@@ -112,13 +112,13 @@
       "id": "geo_hose_engine",
       "type": "backend",
       "label": "3m Grid & Hose Engine",
-      "sublabel": "25×16 parcel & +15% slack",
+      "sublabel": "Split-Geocoder & +15% slack",
       "brand": "python",
       "tag": "NFPA 58 math",
       "pos": [620, 95],
       "size": [168, 68],
       "sources": [
-        { "path": "app/services/geo_grid.py", "line": 1, "end_line": 301, "label": "3m grid, hose reach & 9.5k cap" },
+        { "path": "app/services/geo_grid.py", "line": 1, "end_line": 582, "label": "Split autocomplete, 3m grid & 9.5k cap" },
         { "path": "app/services/w3w_service.py", "line": 1, "end_line": 107, "label": "what3words v3 & 402 fallback" }
       ]
     },
@@ -153,10 +153,19 @@
       "id": "external_geo_apis",
       "type": "external",
       "label": "Google Maps & W3W",
-      "sublabel": "Geocoding & what3words v3",
+      "sublabel": "Stage 2 Rooftop & 3WA API",
       "brand": "google-cloud",
-      "tag": "external geo",
+      "tag": "stage 2 geo",
       "pos": [910, 95],
+      "size": [162, 68]
+    },
+    {
+      "id": "photon_osm_autocomplete",
+      "type": "external",
+      "label": "Photon / OSM Suggest",
+      "sublabel": "Stage 1 $0 Type-Ahead",
+      "tag": "0 Google quota",
+      "pos": [910, 240],
       "size": [162, 68]
     },
     {
@@ -188,7 +197,7 @@
       "id": "resident-to-gateway",
       "from": "resident_portal",
       "to": "fastapi_gateway",
-      "label": "HTTPS / parcel & pins",
+      "label": "HTTPS / suggest & pins",
       "variant": "emphasis",
       "fromSide": "right",
       "toSide": "left",
@@ -257,11 +266,21 @@
       "id": "geo-to-external",
       "from": "geo_hose_engine",
       "to": "external_geo_apis",
-      "label": "HTTPS (≤9.5k/mo cap)",
+      "label": "Stage 2 rooftop (≤9.5k/mo)",
       "variant": "dashed",
       "fromSide": "right",
       "toSide": "left",
       "route": "straight"
+    },
+    {
+      "id": "geo-to-photon",
+      "from": "geo_hose_engine",
+      "to": "photon_osm_autocomplete",
+      "label": "Stage 1 suggest ($0)",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "orthogonal-h"
     },
     {
       "id": "vendor-to-erp",
@@ -279,7 +298,7 @@
       "dot": "cyan",
       "title": "100% Browser & Plaid-Style Extension",
       "items": [
-        "Zero-login Resident Grid Portal (/) and embeddable <script> widget.js",
+        "Zero-login Resident Grid Portal (/) with live 300ms debounced address autocomplete",
         "25×16 3m×3m property grid with waypoint-aware bobtail hose reach (+15% slack)",
         "CDL Tanker Driver mobile browser view (/driver) with Service Worker offline cache"
       ]
@@ -295,11 +314,11 @@
     },
     {
       "dot": "amber",
-      "title": "$0 Free-Tier Cost & Security Guardrails",
+      "title": "Split-Provider Geocode & $0 Cost Guardrails",
       "items": [
-        "Hard circuit breaker at 300/day & 9,500/month Google Maps calls (locked below 10,000 free tier)",
-        "On-demand what3words v3 resolution with deterministic HTTP 402 Free-Plan fallback",
-        "4 secrets loaded at startup from Google Cloud Secret Manager; HMAC-SHA256 ERP webhooks"
+        "Stage 1: $0 Photon/OpenStreetMap + Dealer Catalog type-ahead (0 Google Maps quota used)",
+        "Stage 2: 1 Google Rooftop Geocode call on selection (hard-capped at 300/day & 9,500/month)",
+        "Rural house-number prefix preservation + automatic Photon coordinate fallback when capped"
       ]
     }
   ]

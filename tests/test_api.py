@@ -146,3 +146,47 @@ def test_archify_architecture_endpoint_and_artifacts() -> None:
     assert "TankSquare — Cloud-Direct B2B Propane" in arch_resp.text
 
 
+def test_split_provider_autocomplete_and_stage2_geocode() -> None:
+    # 1. Short query (< 3 chars) should return empty list with 0 Google quota
+    short_resp = client.get("/api/v1/resident/autocomplete?q=74")
+    assert short_resp.status_code == 200
+    short_data = short_resp.json()
+    assert short_data["google_quota_used"] == 0
+    assert short_data["suggestions"] == []
+
+    # 2. Type-ahead match ("742 Evergreen") returns USPS formatted address at $0 / 0 Google calls
+    ac_resp = client.get("/api/v1/resident/autocomplete?q=742%20Evergreen")
+    assert ac_resp.status_code == 200
+    ac_data = ac_resp.json()
+    assert ac_data["google_quota_used"] == 0
+    assert ac_data["cost_usd"] == 0.0
+    assert len(ac_data["suggestions"]) >= 1
+    top = ac_data["suggestions"][0]
+    assert "742 Evergreen Terrace, Montpelier, VT 05602" in top["formatted_address"]
+    assert top["fallback_lat"] == 44.2601
+    assert top["fallback_lng"] == -72.5754
+
+    # 3. Rural house-number prefix preservation ("999B Bear Swamp" -> "999B Bear Swamp Rd, Middlesex, VT 05602")
+    rural_resp = client.get("/api/v1/resident/autocomplete?q=999B%20Bear%20Swamp")
+    assert rural_resp.status_code == 200
+    rural_data = rural_resp.json()
+    assert rural_data["google_quota_used"] == 0
+    assert any(
+        s["formatted_address"].startswith("999B Bear Swamp Rd") and s["house_number_preserved"] is True
+        for s in rural_data["suggestions"]
+    )
+
+    # 4. Stage 2 Geocode uses fallback coordinates when Google key is unconfigured/capped
+    geo_resp = client.post(
+        "/api/v1/resident/geocode",
+        json={
+            "street_address": "999B Bear Swamp Rd, Middlesex, VT 05602",
+            "fallback_lat": 44.3108,
+            "fallback_lng": -72.6682,
+        },
+    )
+    assert geo_resp.status_code == 200
+    geo_data = geo_resp.json()
+    assert geo_data["parcel_center_lat"] == 44.3108
+    assert geo_data["parcel_center_lng"] == -72.6682
+    assert geo_data["precision_source"] in {"google_rooftop_geocode", "photon_osm_fallback"}

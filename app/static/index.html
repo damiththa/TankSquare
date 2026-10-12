@@ -71,6 +71,9 @@
       <a href="/driver" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1 rounded-lg transition">
         Open Tanker Driver Mobile View &rarr;
       </a>
+      <a href="/architecture" target="_blank" class="text-emerald-400 hover:text-emerald-300 font-semibold underline">
+        Archify Architecture
+      </a>
       <a href="/docs" target="_blank" class="text-slate-400 hover:text-white underline">
         FastAPI Swagger Docs
       </a>
@@ -118,10 +121,26 @@
           </button>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-6">
-            <label class="block text-xs text-slate-400 mb-1">Service Street Address</label>
-            <input id="addressInput" type="text" value="742 Evergreen Terrace, Montpelier, VT 05602"
+          <div class="md:col-span-6 relative">
+            <div class="flex items-center justify-between mb-1">
+              <label for="addressInput" class="block text-xs text-slate-400">Service Street Address (Live Type-Ahead)</label>
+              <span id="autocompleteStatusBadge" class="text-[10px] font-semibold text-emerald-400/90">
+                ⚡ Split-Provider: $0 Type-Ahead &rarr; Google Rooftop
+              </span>
+            </div>
+            <input id="addressInput" type="text" autocomplete="off"
+              placeholder="Start typing street address (e.g., 742 Evergreen...)"
+              value="742 Evergreen Terrace, Montpelier, VT 05602"
               class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
+            <!-- Split-Provider Autocomplete Suggestions Dropdown -->
+            <div id="addressSuggestions"
+              class="hidden absolute left-0 right-0 top-full mt-1.5 z-50 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
+              <ul id="addressSuggestionsList" class="divide-y divide-slate-800/80 max-h-60 overflow-y-auto text-xs"></ul>
+              <div class="bg-slate-950/90 px-3 py-1.5 text-[10px] text-slate-400 flex items-center justify-between border-t border-slate-800">
+                <span>Stage 1: Photon/OSM + Local Catalog (0 Google Quota)</span>
+                <span class="text-emerald-400 font-semibold">Stage 2: Google Rooftop Geocode</span>
+              </div>
+            </div>
           </div>
           <div class="md:col-span-4">
             <label class="block text-xs text-slate-400 mb-1">Tank / Fill Style (Trees or Underground?)</label>
@@ -530,18 +549,142 @@
       loadSession(e.target.value);
     });
 
-    document.getElementById("geocodeBtn").addEventListener("click", async () => {
-      const addr = document.getElementById("addressInput").value;
+    // Split-Provider Address Autocomplete (Stage 1: $0 Photon/OSM -> Stage 2: Google Rooftop Geocode)
+    let autocompleteTimer = null;
+    let activeSuggestions = [];
+    let highlightedIndex = -1;
+
+    const addressInputEl = document.getElementById("addressInput");
+    const suggestionsBoxEl = document.getElementById("addressSuggestions");
+    const suggestionsListEl = document.getElementById("addressSuggestionsList");
+    const autocompleteBadgeEl = document.getElementById("autocompleteStatusBadge");
+
+    async function triggerStage2Geocode(streetAddress, fallbackLat = null, fallbackLng = null) {
+      const payload = { street_address: streetAddress };
+      if (fallbackLat !== null && fallbackLng !== null) {
+        payload.fallback_lat = fallbackLat;
+        payload.fallback_lng = fallbackLng;
+      }
       const parcel = await fetch("/api/v1/resident/geocode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ street_address: addr }),
+        body: JSON.stringify(payload),
       }).then((r) => r.json());
       state.parcel = parcel;
+      const srcLabel = parcel.precision_source || "google_rooftop_geocode";
       document.getElementById("coordsFooter").textContent =
-        `Parcel Center: ${parcel.parcel_center_lat}, ${parcel.parcel_center_lng}`;
+        `Parcel Center: ${parcel.parcel_center_lat}, ${parcel.parcel_center_lng} (${srcLabel})`;
       renderGrid();
       await refreshCalculationsAndW3W();
+    }
+
+    function hideSuggestions() {
+      suggestionsBoxEl.classList.add("hidden");
+      highlightedIndex = -1;
+    }
+
+    async function selectSuggestion(item) {
+      addressInputEl.value = item.formatted_address;
+      hideSuggestions();
+      autocompleteBadgeEl.textContent = "🎯 Locked via Stage 2 Geocode";
+      await triggerStage2Geocode(item.formatted_address, item.fallback_lat, item.fallback_lng);
+    }
+
+    function renderSuggestionsDropdown(suggestions, providerName) {
+      suggestionsListEl.innerHTML = "";
+      activeSuggestions = suggestions || [];
+      highlightedIndex = -1;
+
+      if (!activeSuggestions.length) {
+        hideSuggestions();
+        return;
+      }
+
+      activeSuggestions.forEach((item, idx) => {
+        const li = document.createElement("li");
+        li.className =
+          "px-3 py-2.5 cursor-pointer hover:bg-emerald-950/70 transition flex items-center justify-between gap-2";
+        const badgeText = item.house_number_preserved
+          ? "House # Preserved"
+          : item.source === "local_service_catalog"
+          ? "Dealer Catalog"
+          : "Photon / OSM";
+        li.innerHTML = `
+          <div>
+            <div class="font-bold text-white">${item.street_line || item.formatted_address}</div>
+            <div class="text-[11px] text-slate-400">${item.city_state_zip || item.formatted_address}</div>
+          </div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-emerald-300 border border-slate-700 shrink-0">
+            ${badgeText}
+          </span>
+        `;
+        li.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          selectSuggestion(item);
+        });
+        suggestionsListEl.appendChild(li);
+      });
+
+      autocompleteBadgeEl.textContent = `⚡ ${activeSuggestions.length} suggestions ($0 • 0 Google Quota)`;
+      suggestionsBoxEl.classList.remove("hidden");
+    }
+
+    addressInputEl.addEventListener("input", (e) => {
+      const q = e.target.value.trim();
+      if (autocompleteTimer) clearTimeout(autocompleteTimer);
+      if (q.length < 3) {
+        hideSuggestions();
+        return;
+      }
+      autocompleteTimer = setTimeout(async () => {
+        try {
+          const data = await fetch(`/api/v1/resident/autocomplete?q=${encodeURIComponent(q)}&limit=5`).then((r) =>
+            r.json()
+          );
+          renderSuggestionsDropdown(data.suggestions || [], data.provider);
+        } catch (err) {
+          hideSuggestions();
+        }
+      }, 300);
+    });
+
+    addressInputEl.addEventListener("keydown", (e) => {
+      if (suggestionsBoxEl.classList.contains("hidden") || !activeSuggestions.length) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          triggerStage2Geocode(addressInputEl.value);
+        }
+        return;
+      }
+      const items = suggestionsListEl.querySelectorAll("li");
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        highlightedIndex = (highlightedIndex + 1) % activeSuggestions.length;
+        items.forEach((el, i) => el.classList.toggle("bg-emerald-950/80", i === highlightedIndex));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        highlightedIndex = (highlightedIndex - 1 + activeSuggestions.length) % activeSuggestions.length;
+        items.forEach((el, i) => el.classList.toggle("bg-emerald-950/80", i === highlightedIndex));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (highlightedIndex >= 0 && activeSuggestions[highlightedIndex]) {
+          selectSuggestion(activeSuggestions[highlightedIndex]);
+        } else {
+          hideSuggestions();
+          triggerStage2Geocode(addressInputEl.value);
+        }
+      } else if (e.key === "Escape") {
+        hideSuggestions();
+      }
+    });
+
+    addressInputEl.addEventListener("blur", () => {
+      setTimeout(hideSuggestions, 180);
+    });
+
+    document.getElementById("geocodeBtn").addEventListener("click", async () => {
+      hideSuggestions();
+      await triggerStage2Geocode(addressInputEl.value);
     });
 
     document.getElementById("gpsBtn").addEventListener("click", async () => {

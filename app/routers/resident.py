@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.services.gcp_store import get_store
 from app.services.geo_grid import (
+    autocomplete_addresses,
     calculate_hose_reach,
     format_cell_label,
     geocode_address_to_parcel,
@@ -40,6 +41,18 @@ class GeocodeAddressRequest(BaseModel):
     street_address: str
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
+    fallback_lat: Optional[float] = None
+    fallback_lng: Optional[float] = None
+
+
+@router.get("/autocomplete")
+def autocomplete_resident_address(q: str = "", limit: int = 5) -> Dict[str, Any]:
+    """
+    Split-Provider Stage 1: Zero-cost type-ahead address autocomplete (Local Catalog + Photon/OSM).
+    Consumes 0 Google Maps API quota calls while typing; the selected address is then passed
+    to `POST /api/v1/resident/geocode` (Stage 2) for Google Maps rooftop precision.
+    """
+    return autocomplete_addresses(query=q, limit=max(1, min(limit, 8)))
 
 
 @router.get("/session/{token}")
@@ -76,10 +89,15 @@ def get_resident_session_context(token: str) -> Dict[str, Any]:
 @router.post("/geocode")
 def geocode_resident_address(req: GeocodeAddressRequest) -> Dict[str, Any]:
     """
-    Convert a street address (or optional phone browser GPS coordinates) into a centered
-    25x16 grid of 3m x 3m squares with building/driveway landmarks.
+    Split-Provider Stage 2: Convert a selected street address (or optional phone browser GPS coordinates)
+    into a centered 25x16 grid of 3m x 3m squares using Google Maps Rooftop Geocoding (within free-tier cap)
+    with automatic fallback to Stage 1 autocomplete coordinates.
     """
-    parcel = geocode_address_to_parcel(req.street_address)
+    parcel = geocode_address_to_parcel(
+        req.street_address,
+        fallback_lat=req.fallback_lat,
+        fallback_lng=req.fallback_lng,
+    )
     if req.gps_lat is not None and req.gps_lng is not None:
         parcel["parcel_center_lat"] = round(req.gps_lat, 6)
         parcel["parcel_center_lng"] = round(req.gps_lng, 6)

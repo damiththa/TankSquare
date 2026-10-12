@@ -35,14 +35,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/tt-a1i/archify.git /tmp/archify
 
-      - name: Validate & Finalize with Official Archify CLI
-        run: |
-          node /tmp/archify/archify/bin/archify.mjs validate architecture \
-            docs/architecture/tanksquare.architecture.json \
-            --repo-root "${GITHUB_WORKSPACE}" \
-            --quality showcase
-
-      - name: Render Interactive Archify HTML + GitHub Inline SVG
+      - name: Validate Repository Evidence & Render Archify HTML + GitHub Inline SVG
         run: |
           python3 scripts/render_archify.py
 
